@@ -72,7 +72,7 @@ Dans certains skills, des chemins sont à adapter à votre machine :
 
 Certains skills viennent d'autres éditeurs et restent soumis à leurs conditions :
 - `remotion-*` : basés sur [Remotion](https://www.remotion.dev) ;
-- `hyperframes`, `hyperframes-cli`, `hyperframes-registry`, `media-use`, `reverse-any-video`, `style-sampling` : [HyperFrames / HeyGen](https://www.heygen.com) ;
+- `hyperframes`, `hyperframes-cli`, `hyperframes-registry`, `media-use`, `reverse-any-video`, `style-sampling` : [HyperFrames / HeyGen](https://github.com/heygen-com/hyperframes), licence Apache-2.0 (voir `LICENSES/HYPERFRAMES-Apache-2.0.txt`) ;
 - `21st-video` : [21st.dev](https://21st.dev).
 
 Les autres skills sont des créations personnelles.
