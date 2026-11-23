@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<style>
+@font-face { font-family: Anton; src: url(fonts/Anton-Regular.ttf); }
+@font-face { font-family: Oswald; src: url(fonts/Oswald.ttf); font-weight: 200 700; }
+:root { --red: #ff2b2b; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 1080px; height: 1080px; overflow: hidden; background: #000; }
+#stage { position: absolute; inset: 0; overflow: hidden; }
+.cam { position: absolute; inset: 0; transform-origin: 540px 370px; }
+.cam img, #subj img, #subj canvas { position: absolute; left: 0; top: 0; width: 1080px; height: 1080px; display: block; }
+#dim { position: absolute; inset: 0; background: radial-gradient(75% 70% at 50% 40%, rgba(10,8,8,.35), rgba(10,8,8,.85)); }
+/* fonds de plan */
+.bgs { position: absolute; inset: 0; opacity: 0; overflow: hidden; }
+#bgWhite { background: radial-gradient(80% 80% at 50% 45%, #ffffff 0%, #f1f1f3 60%, #dcdce0 100%); }
+#bgRed { background: radial-gradient(85% 85% at 50% 42%, #ff4a32 0%, #d9101c 45%, #6d0008 100%); }
+#sweep { position: absolute; left: -50%; top: -50%; width: 200%; height: 200%;
+  background: conic-gradient(from 0deg at 50% 50%, rgba(255,255,255,0) 0deg, rgba(255,255,255,.10) 30deg, rgba(255,255,255,0) 60deg, rgba(255,255,255,0) 180deg, rgba(255,255,255,.08) 210deg, rgba(255,255,255,0) 240deg); }
+.ghost { position: absolute; left: 0; white-space: nowrap; font-family: Anton, sans-serif; font-size: 220px; line-height: 1; letter-spacing: .01em; color: transparent; }
+#bgWhite .ghost { -webkit-text-stroke: 2px rgba(20,20,24,.10); }
+#bgRed .ghost { -webkit-text-stroke: 2px rgba(255,255,255,.16); }
+#behind, #front, #heroFront { position: absolute; inset: 0; pointer-events: none; }
+.hero { position: absolute; left: 0; right: 0; text-align: center; font-family: Anton, sans-serif; line-height: .95; white-space: nowrap; opacity: 0; }
+.hero span { display: inline-block; }
+#subj { position: absolute; inset: 0; transform-origin: 540px 1080px; }
+#white { opacity: 0; filter: drop-shadow(0 0 22px rgba(255,255,255,.9)); }
+.grp { position: absolute; left: 40px; right: 40px; top: 830px; text-align: center; font-family: Oswald, sans-serif; font-weight: 600; font-size: 74px; color: #fff;
+  line-height: 1.05; letter-spacing: .005em; display: none; text-shadow: 0 3px 0 rgba(0,0,0,.35), 0 6px 22px rgba(0,0,0,.6); }
+.grp.dark { color: #121214; text-shadow: 0 2px 14px rgba(255,255,255,.6); }
+.grp .sw { display: inline-block; margin: 0 .11em; opacity: 0; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div class="cam" id="camA"><img id="bg" alt="" /><div id="dim"></div></div>
+  <div class="bgs" id="bgWhite"><div class="ghostWrap"></div></div>
+  <div class="bgs" id="bgRed"><div id="sweep"></div><div class="ghostWrap"></div></div>
+  <div id="behind"></div>
+  <div class="cam" id="camB"><div id="subj"><img id="fg" alt="" /><canvas id="white" width="1080" height="1080"></canvas></div></div>
+  <div id="heroFront"></div>
+  <div id="front"></div>
+</div>
+<script src="groups.js"></script>
+<script>
+const G = window.GROUPS, CUTS = window.CUTS, FPS = 30000 / 1001, NBG = 2562;
+const $ = (s) => document.querySelector(s);
+const clamp = (x) => Math.min(1, Math.max(0, x));
+const eOut = (x) => 1 - Math.pow(1 - clamp(x), 3);
+const eInOut = (x) => { x = clamp(x); return x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
+
+// plans sur fond : [début, fin, type]
+const SCENES = [[1.70, 3.62, "red"], [8.50, 11.55, "white"], [13.05, 18.15, "red"], [25.20, 27.50, "white"], [34.20, 37.70, "red"],
+  [43.60, 48.30, "white"], [51.20, 56.90, "red"], [65.10, 67.90, "white"], [72.40, 77.30, "red"], [82.40, 99, "white"]];
+const sceneAt = (t) => SCENES.find(([a, b]) => t >= a && t < b);
+
+const wg = G.filter((g) => g.words.length);
+$("#front").innerHTML = wg.map((g) => `<div class="grp">${g.words.map((w) => `<span class="sw">${w.t}</span>`).join("")}</div>`).join("");
+const grpEls = [...document.querySelectorAll(".grp")];
+const heroes = G.filter((g) => g.hero).map((g) => g.hero);
+heroes.forEach((h, i) => { h.end = Math.min(h.s + 1.7, i + 1 < heroes.length ? heroes[i + 1].s - 0.12 : h.s + 1.7); h.sc = sceneAt(h.s + 0.05); });
+// grands mots : derrière le sujet sur les fonds, devant (zone des sous-titres) en face cam
+$("#behind").innerHTML = heroes.map((h) => `<div class="hero"><span>${h.t}</span></div>`).join("");
+$("#heroFront").innerHTML = heroes.map((h) => `<div class="hero"><span>${h.t}</span></div>`).join("");
+const heroB = [...document.querySelectorAll("#behind .hero")], heroF = [...document.querySelectorAll("#heroFront .hero")];
+// texte fantôme en contour qui défile sur les fonds
+document.querySelectorAll(".ghostWrap").forEach((w) => { w.innerHTML = [0, 1, 2, 3, 4].map((r) => `<div class="ghost" style="top:${r * 230 - 60}px" data-r="${r}"></div>`).join(""); });
+let fitted = false;
+function fit() {
+  heroes.forEach((h, i) => {
+    const b = heroB[i], f = heroF[i];
+    const onBg = !!h.sc;
+    b.style.top = "150px"; f.style.top = "760px";
+    let fs = 300; b.style.fontSize = fs + "px"; while (b.firstChild.offsetWidth > 1000 && fs > 110) { fs -= 4; b.style.fontSize = fs + "px"; }
+    let ff = 190; f.style.fontSize = ff + "px"; while (f.firstChild.offsetWidth > 1000 && ff > 90) { ff -= 4; f.style.fontSize = ff + "px"; }
+    if (onBg && h.sc[2] === "white") { b.style.color = "#e5162a"; b.style.textShadow = "0 18px 40px rgba(229,22,42,.25)"; }
+    else { b.style.color = "#ffffff"; b.style.textShadow = "0 0 40px rgba(255,255,255,.45), 0 12px 40px rgba(80,0,0,.45)"; }
+    f.style.color = "var(--red)"; f.style.textShadow = "0 0 26px rgba(255,40,40,.75), 0 0 70px rgba(255,30,30,.4), 0 4px 0 rgba(0,0,0,.35)";
+  });
+}
+const FLASH = new Set(["SURVEILLÉ", "WECHAT", "380"]);
+
+function camAt(t) {
+  let k = CUTS.filter((c) => t >= c).length;
+  let s = [1.0, 1.08, 1.03, 1.11][k % 4];
+  s *= 1 + 0.08 * (1 - eOut(t / 1.2));
+  for (const h of heroes) { if (h.sc) continue; const d = t - h.s; if (d >= -0.05 && d < 1.6) s *= 1 + 0.07 * (d < 0.22 ? eOut((d + 0.05) / 0.27) : 1 - eInOut((d - 0.22) / 1.3)); }
+  return s;
+}
+function render(t) {
+  if (!fitted) { fit(); fitted = true; }
+  const sc = sceneAt(t);
+  let wh = 0;
+  // ── fond
+  const camS = camAt(t);
+  if (!sc) {
+    $("#camA").style.display = "block";
+    $("#camA").style.transform = `scale(${camS.toFixed(4)})`;
+    $("#camB").style.transform = `scale(${camS.toFixed(4)})`;
+    $("#subj").style.transform = "none";
+    $("#bgWhite").style.opacity = 0; $("#bgRed").style.opacity = 0;
+    let dim = 0.42; if (t < 0.6) dim = 0.95 - 0.53 * eOut(t / 0.6);
+    $("#dim").style.opacity = dim;
+    // retour en face cam : léger zoom arrière + flash
+    const prev = SCENES.filter(([, b]) => b <= t).pop();
+    if (prev) { const d = t - prev[1]; if (d < 0.35) { $("#camA").style.transform = $("#camB").style.transform = `scale(${(camS * (1 + 0.12 * (1 - eOut(d / 0.35)))).toFixed(4)})`; wh = Math.max(wh, 0.6 * (1 - eOut(d / 0.3))); } }
+  } else {
+    const [a, b, type] = sc, d = t - a, out = b - t;
+    $("#camA").style.display = d < 0.3 ? "block" : "none";
+    $("#camB").style.transform = "none";
+    const bgEl = type === "white" ? $("#bgWhite") : $("#bgRed");
+    $("#bgWhite").style.opacity = type === "white" ? 1 : 0; $("#bgRed").style.opacity = type === "red" ? 1 : 0;
+    // le fond entre en balayage de bas en haut
+    bgEl.style.clipPath = `inset(${(100 * (1 - eOut(d / 0.28))).toFixed(2)}% 0 0 0)`;
+    // sujet détouré : arrive en zoom, respire, puis grandit avant la sortie
+    const sIn = 1.22 - 0.3 * eOut(d / 0.45), drift = 0.025 * (d / Math.max(1, b - a)), sOut = out < 0.3 ? 0.08 * (1 - out / 0.3) : 0;
+    $("#subj").style.transform = `translateY(${(30 - 30 * eOut(d / 0.45)).toFixed(1)}px) scale(${(sIn + drift + sOut).toFixed(4)})`;
+    if (d < 0.3) wh = Math.max(wh, 0.95 * (1 - eOut(d / 0.3)));
+    // rotation douce de la lumière (fond rouge) + texte fantôme qui défile
+    $("#sweep").style.transform = `rotate(${(t * 22).toFixed(2)}deg)`;
+    const hs = heroes.filter((h) => h.sc === sc), word = hs.length ? hs[Math.max(0, hs.filter((h) => t >= h.s - 0.2).length - 1)].t : "";
+    bgEl.querySelectorAll(".ghost").forEach((g) => {
+      const r = +g.dataset.r, txt = (word + "  ").repeat(6);
+      if (g.textContent !== txt) g.textContent = txt;
+      const dir = r % 2 ? 1 : -1;
+      g.style.transform = `translateX(${(-400 + dir * (t - a) * 90 - r * 120).toFixed(1)}px)`;
+      g.style.opacity = eOut(d / 0.5).toFixed(3);
+    });
+  }
+  // flashs de silhouette blanche : ouverture + quelques mots forts
+  if (t < 0.5) wh = Math.max(wh, t < 0.12 ? 1 : 1 - eOut((t - 0.12) / 0.38));
+  for (const h of heroes) { if (!FLASH.has(h.t)) continue; const d = t - h.s; if (d >= 0 && d < 0.4) wh = Math.max(wh, 0.85 * (1 - eOut(d / 0.4))); }
+  $("#white").style.opacity = wh.toFixed(3);
+  // ── grands mots
+  heroes.forEach((h, i) => {
+    const onBg = !!h.sc && sc === h.sc, el = onBg ? heroB[i] : heroF[i], other = onBg ? heroF[i] : heroB[i];
+    other.style.opacity = 0;
+    const d = t - h.s, out = t - h.end;
+    if (d < -0.02 || out > 0.3 || (h.sc && !onBg)) { el.style.opacity = 0; return; }
+    const pin = eOut(d / 0.35), pout = clamp(out / 0.3);
+    el.style.opacity = (pin * (1 - pout)).toFixed(3);
+    const extra = onBg ? 0.08 * eOut((d - 0.3) / 1.6) : 0.05 * eOut((d - 0.35) / 1.4);
+    el.style.transform = `translateY(${((1 - pin) * (onBg ? 60 : 30)).toFixed(1)}px) scale(${(1.2 - 0.2 * pin + extra + 0.1 * pout).toFixed(4)})`;
+    el.style.filter = `blur(${((1 - pin) * 14 + pout * 10).toFixed(1)}px)`;
+  });
+  // ── petits sous-titres (cachés pendant un grand mot en face cam, qui prend leur place)
+  const frontHero = heroes.some((h) => !h.sc && t >= h.s - 0.02 && t < h.end + 0.2);
+  wg.forEach((g, i) => {
+    const next = i + 1 < wg.length ? wg[i + 1].s : 1e9;
+    const on = !frontHero && t >= g.s - 0.03 && t < Math.min(next - 0.03, g.e + 0.9);
+    const el = grpEls[i];
+    el.style.display = on ? "block" : "none";
+    if (!on) return;
+    [...el.children].forEach((sp, j) => {
+      const p = eOut((t - g.words[j].s + 0.03) / 0.22);
+      sp.style.opacity = p.toFixed(3);
+      sp.style.transform = `translateY(${((1 - p) * 26).toFixed(1)}px) scale(${(0.9 + 0.1 * p).toFixed(3)})`;
+      sp.style.filter = `blur(${((1 - p) * 8).toFixed(1)}px)`;
+    });
+  });
+  // ── images
+  const n = Math.min(NBG, Math.floor(t * FPS + 1e-6) + 1), name = `f${String(n).padStart(5, "0")}`;
+  const P = [];
+  const set = (img, src) => { if (img.getAttribute("src") !== src) { img.setAttribute("src", src); P.push(img.decode().catch(() => {})); } };
+  set($("#bg"), `bgsq/${name}.jpg`); set($("#fg"), `fgsq/${name}.png`);
+  return Promise.all(P).then(() => {
+    if (wh > 0.001) { const c = $("#white").getContext("2d"); c.globalCompositeOperation = "source-over"; c.clearRect(0, 0, 1080, 1080); c.drawImage($("#fg"), 0, 0, 1080, 1080); c.globalCompositeOperation = "source-in"; c.fillStyle = "#fff"; c.fillRect(0, 0, 1080, 1080); }
+  }).then(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+}
+window.render = render;
+window.ready = document.fonts.load("100px Anton").then(() => document.fonts.load("600 74px Oswald")).then(() => document.fonts.ready);
+</script>
+</body>
+</html>

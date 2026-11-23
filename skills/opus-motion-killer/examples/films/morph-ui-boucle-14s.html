@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><title>Morph</title>
+<style>
+@font-face{font-family:U;src:url(fonts/Urbanist-Medium.ttf);font-weight:100 900}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1440px;height:1440px;overflow:hidden;background:#fff;font-family:U;color:#0e0e10}
+#stage{position:absolute;inset:0;overflow:hidden;background:#fff}
+#world{position:absolute;left:0;top:0;width:1440px;height:1440px;transform-origin:720px 720px}
+#shape{position:absolute;overflow:hidden}
+.c{position:absolute}
+.a{position:absolute}
+#cursor{position:absolute;left:0;top:0;width:40px;height:40px;z-index:50;transform-origin:4px 3px}
+</style></head><body>
+<div id="stage"><div id="world"><div id="shape"></div></div>
+<svg id="cursor" viewBox="0 0 24 24"><path d="M4 2.5l15.5 9.2-6.9 1.4 3.9 7.3-3 1.6-3.9-7.4L4.9 19z" fill="#0e0e10" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg></div>
+<script>
+/* ---------- constantes ---------- */
+const DUR = 14; window.DUR = DUR;
+const BEAT = .5;
+const C = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const M = (a, b, p) => a + (b - a) * p;
+const P = (t, a, d) => C((t - a) / d);
+const io = (x) => (x < .5 ? 4 * x * x * x : 1 - (-2 * x + 2) ** 3 / 2);
+const o3 = (x) => 1 - (1 - x) ** 3;
+// ressort : réponse indicielle fermée (dépassement minime)
+function spring(t, k = 220, d = 27) {
+  if (t <= 0) return 0; const w = Math.sqrt(k), z = d / (2 * w);
+  if (z >= 1) return 1 - Math.exp(-w * t) * (1 + w * t);
+  const wd = w * Math.sqrt(1 - z * z); return 1 - Math.exp(-z * w * t) * (Math.cos(wd * t) + (z * w / wd) * Math.sin(wd * t));
+}
+// valeur = somme d'un ressort par changement de cible
+function track(t, base, changes) { let v = base; for (const [t0, d, k, dd] of changes) v += d * spring(t - t0, k, dd); return v; }
+function mkChanges(keys, prop, k = 220, d = 27) { const out = []; for (let i = 1; i < keys.length; i++) { const dv = keys[i][prop] - keys[i - 1][prop]; if (dv) out.push([keys[i].t, dv, keys[i].k || k, keys[i].d || d]); } return out; }
+function el(tag, cls, parent, html = '', style = '') { const e = document.createElement(tag); if (cls) e.className = cls; if (html) e.innerHTML = html; if (style) e.style.cssText = style; parent.appendChild(e); return e; }
+const BLUE = [0, 161, 255], INK = [14, 14, 16], GREY = [237, 237, 235], WHITE = [255, 255, 255], TOG = [226, 226, 224];
+const shape = document.getElementById('shape'), world = document.getElementById('world'), cursor = document.getElementById('cursor');
+const ICON = (d, s = 28, c = '#fff', sw = 2.2) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+
+/* ---------- états de la forme (monde, centre 720,720) ---------- */
+const F = { k: 420, d: 41 }; // ressort rapide et sans rebond pour revenir à l'image 0
+const ST = [
+  { t: 0, n: 'button', w: 280, h: 88, r: 44, c: INK, z: 2.55 },
+  { t: .55, n: 'loader', w: 88, h: 88, r: 44, c: INK, z: 3.0 },
+  { t: 1.5, n: 'check', w: 88, h: 88, r: 44, c: BLUE, z: 3.0 },
+  { t: 2.0, n: 'island', w: 380, h: 100, r: 50, c: INK, z: 2.3 },
+  { t: 2.5, n: 'player', w: 600, h: 320, r: 44, c: INK, z: 1.62 },
+  { t: 5.5, n: 'volume', w: 540, h: 84, r: 42, c: GREY, z: 1.75 },
+  { t: 7.5, n: 'toggle', w: 160, h: 88, r: 44, c: TOG, z: 2.8 },
+  { t: 8.0, n: 'toggleOn', w: 160, h: 88, r: 44, c: BLUE, z: 2.8 },
+  { t: 8.5, n: 'tabs', w: 560, h: 88, r: 44, c: GREY, z: 1.8 },
+  { t: 10.0, n: 'chart', w: 680, h: 480, r: 40, c: WHITE, z: 1.42 },
+  { t: 12.0, n: 'palette', w: 640, h: 430, r: 32, c: WHITE, z: 1.5 },
+  { t: 12.8, n: 'palette2', w: 640, h: 190, r: 32, c: WHITE, z: 1.75 },
+  { t: 13.0, n: 'toast', w: 480, h: 100, r: 50, c: INK, z: 2.1 },
+  { t: 13.5, n: 'button', w: 280, h: 88, r: 44, c: INK, z: 2.55, k: F.k, d: F.d },
+];
+const CH = {}; ['w', 'h', 'r', 'z'].forEach((p) => (CH[p] = mkChanges(ST, p)));
+CH.z = []; for (let i = 1; i < ST.length; i++) { const dv = ST[i].z - ST[i - 1].z; if (dv) CH.z.push([ST[i].t, dv, ST[i].k ? F.k : 110, ST[i].k ? F.d : 21]); }
+const CC = [0, 1, 2].map((ch) => { const o = []; for (let i = 1; i < ST.length; i++) { const dv = ST[i].c[ch] - ST[i - 1].c[ch]; if (dv) o.push([ST[i].t, dv, ST[i].k ? F.k : 300, ST[i].k ? F.d : 40]); } return o; });
+
+/* ---------- contenus (centrés dans la forme) ---------- */
+const layers = [];
+function layer(w, h, tin, tout, html = '', extra = []) { const e = el('div', 'c', shape, html, `width:${w}px;height:${h}px`); const L = { e, w, h, win: [[tin, tout], ...extra] }; layers.push(L); return L; }
+// bouton (deux fenêtres : début et fin de boucle)
+const lButton = layer(280, 88, -1, .52, `<div class="a" style="inset:0;display:flex;align-items:center;justify-content:center;font:500 32px U;color:#fff;letter-spacing:-.01em">Commencer</div>`, [[13.62, 99]]);
+const lLoader = layer(88, 88, .6, 1.5); const dots = [0, 1, 2].map((i) => el('div', 'a', lLoader.e, '', `left:${23 + i * 16}px;top:39px;width:11px;height:11px;border-radius:6px;background:#fff`));
+const lCheck = layer(88, 88, 1.55, 2.0, `<svg class="a" style="left:22px;top:22px" width="44" height="44" viewBox="0 0 24 24"><path id="ck" d="M5 12.5l4.5 4.5L19 7.5" stroke="#fff" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="22" stroke-dashoffset="22"/></svg>`);
+const ck = lCheck.e.querySelector('#ck');
+const lIsland = layer(380, 100, 2.08, 2.5, `<div class="a" style="left:22px;top:22px;width:56px;height:56px;border-radius:16px;background:rgb(0,161,255);display:flex;align-items:center;justify-content:center">${ICON('<path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>', 26)}</div><div class="a" style="left:96px;top:30px;font:500 26px U;color:#fff">Focus du jour</div>`);
+const wave = [0, 1, 2, 3, 4].map((i) => el('div', 'a', lIsland.e, '', `left:${300 + i * 12}px;width:6px;border-radius:3px;background:rgb(0,161,255)`));
+// lecteur
+const lPlayer = layer(600, 320, 2.58, 5.5);
+el('div', 'a', lPlayer.e, ICON('<path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>', 54), 'left:34px;top:34px;width:140px;height:140px;border-radius:28px;background:rgb(0,161,255);display:flex;align-items:center;justify-content:center');
+el('div', 'a', lPlayer.e, 'Focus du jour', 'left:206px;top:44px;font:500 34px U;color:#fff;letter-spacing:-.01em');
+el('div', 'a', lPlayer.e, 'Playlist travail', 'left:206px;top:88px;font:500 22px U;color:#8c8c90');
+el('div', 'a', lPlayer.e, ICON('<path d="M18 6L9 12l9 6zM6 6v12"/>', 30), 'left:214px;top:134px');
+el('div', 'a', lPlayer.e, ICON('<path d="M6 6l9 6-9 6zM18 6v12"/>', 30), 'left:378px;top:134px');
+const playBtn = el('div', 'a', lPlayer.e, `<svg width="64" height="64" viewBox="0 0 64 64"><path id="pp" fill="#0e0e10"/></svg>`, 'left:284px;top:116px;width:64px;height:64px;border-radius:32px;background:#fff;transform-origin:50% 50%');
+const pp = playBtn.querySelector('#pp');
+const trk = el('div', 'a', lPlayer.e, '', 'left:34px;top:236px;width:532px;height:8px;border-radius:4px;background:#3a3a3e');
+const fill = el('div', 'a', lPlayer.e, '', 'left:34px;top:236px;height:8px;border-radius:4px;background:#fff');
+const knob = el('div', 'a', lPlayer.e, '', 'top:228px;width:24px;height:24px;border-radius:12px;background:#fff;transform-origin:50% 50%');
+const tCur = el('div', 'a', lPlayer.e, '', 'left:34px;top:262px;font:500 18px U;color:#8c8c90');
+el('div', 'a', lPlayer.e, '3:30', 'right:34px;top:262px;font:500 18px U;color:#8c8c90');
+// volume
+const lVol = layer(540, 84, 5.58, 7.5);
+const vFill = el('div', 'a', lVol.e, '', 'left:0;top:0;height:84px;border-radius:42px;background:#0e0e10');
+const vIco = el('div', 'a', lVol.e, ICON('<path d="M4 9.5v5h4l5 4v-13l-5 4z"/><path d="M16.5 9a4.5 4.5 0 0 1 0 6"/><path d="M19 6.5a8 8 0 0 1 0 11"/>', 34), 'left:26px;top:25px');
+// interrupteur + onglets : le bouton rond devient l'indicateur
+const lTog = layer(560, 88, 7.55, 12.0);
+const tabsBg = el('div', 'a', lTog.e, '', 'left:0;top:0;width:560px;height:88px;border-radius:44px;background:rgb(237,237,235)');
+const ind = el('div', 'a', lTog.e, '', 'top:10px;height:68px;border-radius:34px;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.12)');
+const TABS = ['Jour', 'Semaine', 'Mois'];
+const tabL = TABS.map((s, i) => el('div', 'a', lTog.e, s, `left:${10 + i * 180}px;width:180px;top:0;height:88px;line-height:88px;text-align:center;font:500 28px U`));
+// graphique
+const lChart = layer(680, 480, 10.08, 12.0);
+el('div', 'a', lChart.e, 'Visites', 'left:44px;top:128px;font:500 24px U;color:#8c8c90');
+const chVal = el('div', 'a', lChart.e, '', 'left:44px;top:158px;font:500 46px U;letter-spacing:-.02em');
+const PTS = [[60, 400], [150, 360], [240, 378], [330, 300], [420, 318], [510, 250], [620, 228]];
+const VALS = ['8,1 k', '9,0 k', '8,6 k', '10,4 k', '10,1 k', '11,8 k', '12,4 k'];
+const dPath = 'M' + PTS.map((p) => p.join(' ')).join(' L');
+el('div', 'a', lChart.e, `<svg width="680" height="480" viewBox="0 0 680 480"><g stroke="#ececea" stroke-width="2"><line x1="44" x2="636" y1="300" y2="300"/><line x1="44" x2="636" y1="360" y2="360"/><line x1="44" x2="636" y1="420" y2="420"/></g><line id="guide" x1="0" x2="0" y1="220" y2="420" stroke="#0e0e10" stroke-width="2" stroke-dasharray="4 6"/><path id="ln" d="${dPath}" fill="none" stroke="rgb(0,161,255)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><circle id="hd" r="9" fill="#fff" stroke="rgb(0,161,255)" stroke-width="5"/></svg>`, 'left:0;top:0');
+const ln = lChart.e.querySelector('#ln'), guide = lChart.e.querySelector('#guide'), hd = lChart.e.querySelector('#hd');
+const tip = el('div', 'a', lChart.e, '', 'top:0;padding:10px 16px;border-radius:14px;background:#0e0e10;color:#fff;font:500 22px U;white-space:nowrap');
+// palette ⌘K
+const lPal = layer(640, 430, 12.08, 13.0);
+el('div', 'a', lPal.e, ICON('<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/>', 30, '#8c8c90'), 'left:30px;top:29px');
+const q = el('div', 'a', lPal.e, '', 'left:76px;top:28px;font:500 28px U;white-space:pre');
+const qPh = el('div', 'a', lPal.e, 'Rechercher…', 'left:76px;top:28px;font:500 28px U;color:#a8a8a6');
+const qCaret = el('div', 'a', lPal.e, '', 'top:30px;width:2.5px;height:30px;background:rgb(0,161,255)');
+const kbd = el('div', 'a', lPal.e, '⌘K', 'right:28px;top:26px;padding:6px 12px;border-radius:10px;box-shadow:inset 0 0 0 1.5px #e2e2e0;font:500 20px U;color:#8c8c90');
+const enterK = el('div', 'a', lPal.e, '↵', 'right:28px;top:26px;width:46px;padding:6px 0;text-align:center;border-radius:10px;background:#0e0e10;color:#fff;font:500 20px U');
+el('div', 'a', lPal.e, '', 'left:0;right:0;top:88px;height:1.5px;background:#efefed');
+const ITEMS = [['Nouveau projet', '<path d="M12 5v14M5 12h14"/>'], ['Factures', '<path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4"/>'], ['Formations', '<path d="M3 9l9-4 9 4-9 4z"/><path d="M7 11v4c0 1.5 2.5 3 5 3s5-1.5 5-3v-4"/>'], ['Paramètres', '<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>'], ['Équipe', '<circle cx="9" cy="9" r="3.2"/><path d="M3.5 19c.8-3 3-4.5 5.5-4.5s4.7 1.5 5.5 4.5"/><path d="M15.5 6.2a3 3 0 0 1 0 5.6M17.5 14.8c1.4.6 2.4 2 2.9 4.2"/>']];
+const rows = ITEMS.map(([s, ic]) => el('div', 'a', lPal.e, `<span style="display:inline-flex;vertical-align:middle;margin-right:18px">${ICON(ic, 26, '#0e0e10')}</span><span style="vertical-align:middle">${s}</span>`, 'left:14px;right:14px;height:62px;padding:0 18px;line-height:62px;border-radius:16px;font:500 26px U;overflow:hidden'));
+const hl = el('div', 'a', lPal.e, '', 'left:14px;right:14px;height:62px;border-radius:16px;background:#f2f2f0;z-index:-1');
+lPal.e.style.zIndex = 1;
+// notification
+const lToast = layer(480, 100, 13.08, 13.5, `<div class="a" style="left:22px;top:22px;width:56px;height:56px;border-radius:28px;background:rgb(0,161,255);display:flex;align-items:center;justify-content:center">${ICON('<path d="M5 12.5l4.5 4.5L19 7.5"/>', 30, '#fff', 2.6)}</div><div class="a" style="left:98px;top:20px;font:500 28px U;color:#fff">Accès débloqué</div><div class="a" style="left:98px;top:54px;font:500 20px U;color:#8c8c90">Formation ajoutée</div>`);
+
+/* ---------- curseur (monde) : [t, x, y] ; drags gérés à part ---------- */
+const CX = 720, CY = 720;
+const K0 = [CX + 50, CY + 18];
+const PLAY = [CX - 300 + 316, CY - 160 + 148];
+const pAt0 = .22, pAtGrab = pAt0 + (4.0 - 3.0) * .03, pRel = .78;
+const knobX = (p) => CX - 300 + 34 + 532 * p;
+const KNOB_Y = CY - 160 + 240;
+const VOL_L = CX - 270, VOL_W = 540, v0 = .34;
+const TOGK = [CX - 80 + 10 + 34, CY];
+const tabC = (i) => CX - 280 + 10 + 90 + i * 180;
+const PT = (i) => [CX - 340 + PTS[i][0], CY - 240 + PTS[i][1]];
+const CUR = [[0, ...K0], [.5, ...K0], [1.3, CX + 190, CY + 150], [2.55, CX + 190, CY + 150], [2.95, ...PLAY], [3.4, ...PLAY], [3.95, knobX(pAtGrab), KNOB_Y],
+  [4.0, knobX(pAtGrab), KNOB_Y], [4.95, knobX(pRel), KNOB_Y], [5.0, knobX(pRel), KNOB_Y], [5.95, VOL_L + VOL_W * v0, CY], [6.0, VOL_L + VOL_W * v0, CY],
+  [6.5, VOL_L + VOL_W, CY], [6.95, VOL_L + VOL_W + 130, CY], [7.0, VOL_L + VOL_W + 130, CY], [7.95, ...TOGK], [8.0, ...TOGK], [8.45, CX + 60, CY + 20],
+  [8.95, tabC(1), CY + 6], [9.0, tabC(1), CY + 6], [9.45, tabC(2), CY + 6], [9.5, tabC(2), CY + 6], [10.2, tabC(2), CY + 6], [10.95, PT(3)[0], PT(3)[1] + 40],
+  [11.0, PT(3)[0], PT(3)[1] + 40], [11.45, PT(5)[0], PT(5)[1] + 40], [11.9, PT(5)[0], PT(5)[1] + 40], [12.4, CX + 240, CY + 230], [13.45, CX + 240, CY + 230], [13.95, ...K0], [14, ...K0]];
+function curAt(t) { let i = 0; while (i < CUR.length - 2 && t >= CUR[i + 1][0]) i++; const [a, x0, y0] = CUR[i], [b, x1, y1] = CUR[i + 1]; const e = io(C((t - a) / (b - a))); return [M(x0, x1, e), M(y0, y1, e)]; }
+const CLICKS = [.5, 3.0, 4.0, 6.0, 8.0, 9.0, 9.5];
+const HOLDS = [[4.0, 5.0], [6.0, 7.0]];
+
+/* ================= SEEK ================= */
+function seek(t) {
+  const W0 = track(t, ST[0].w, CH.w), H = track(t, ST[0].h, CH.h), R = track(t, ST[0].r, CH.r);
+  let Z = track(t, ST[0].z, CH.z);
+  const col = [0, 1, 2].map((ch) => Math.round(C(track(t, ST[0].c[ch], CC[ch]), 0, 255)));
+  // pression du clic sur la forme
+  let press = 1; CLICKS.forEach((c) => { if (t >= c && t < c + .18) press -= .025 * Math.sin(Math.PI * (t - c) / .18); });
+  // curseur (monde)
+  let [mx, my] = curAt(t);
+  // étirement du volume au-delà du max, ressort au relâchement
+  const over = (x) => Math.max(0, x - (VOL_L + VOL_W));
+  const rub = (o) => 70 * (1 - Math.exp(-o / 90));
+  let extra = 0;
+  if (t >= 6.0 && t < 7.0) extra = rub(over(mx));
+  else if (t >= 7.0) extra = rub(over(curAt(7.0)[0])) * (1 - spring(t - 7.0, 260, 22));
+  const W = W0 + extra;
+  const sx = CX - W0 / 2, sy = CY - H / 2;
+  shape.style.left = sx + 'px'; shape.style.top = sy + 'px'; shape.style.width = W + 'px'; shape.style.height = H + 'px';
+  shape.style.borderRadius = Math.min(R, H / 2, W / 2) + 'px';
+  shape.style.background = `rgb(${col.join(',')})`;
+  shape.style.transform = `scale(${press})`;
+  const white = col[0] > 245 && col[1] > 245;
+  shape.style.boxShadow = `0 0 0 ${C((col[0] - 230) / 25) * 1.5}px #e6e6e4, 0 ${C((col[0] - 230) / 25) * 24}px ${C((col[0] - 230) / 25) * 60}px -30px rgba(0,0,0,.25)`;
+  // caméra : zoom pour que chaque état remplisse le cadre (centre fixe + suivi de l'étirement)
+  world.style.transform = `translate(${-extra / 2 * Z}px,0) scale(${Z})`;
+
+  // contenus : entrée et sortie courtes avec un léger flou
+  layers.forEach((L) => {
+    let op = 0, bl = 0;
+    L.win.forEach(([a, b]) => { const pi = a < 0 ? 1 : o3(P(t, a, .18)), po = P(t, b, .12); if (t >= a && t < b + .12) { op = pi * (1 - po); bl = (1 - pi) * 7 + po * 7; } });
+    L.e.style.visibility = op > .002 ? 'visible' : 'hidden';
+    L.e.style.opacity = op; L.e.style.filter = bl > .2 ? `blur(${bl}px)` : 'none';
+    L.e.style.left = (W - L.w) / 2 + 'px'; L.e.style.top = (H - L.h) / 2 + 'px';
+  });
+  // chargement
+  dots.forEach((d, i) => { d.style.transform = `translateY(${-9 * Math.max(0, Math.sin((t - .6) * 2 * Math.PI * 2 - i * .9))}px)`; });
+  ck.setAttribute('stroke-dashoffset', 22 * (1 - o3(P(t, 1.6, .3))));
+  wave.forEach((b, i) => { const h = 12 + 22 * Math.abs(Math.sin(t * 7 + i * 1.3)); b.style.height = h + 'px'; b.style.top = (50 - h / 2) + 'px'; });
+  // lecture / pause : morphose du triangle en deux barres
+  const m = spring(t - 3.0, 300, 30);
+  const A = [[23, 18], [23, 46], [34, 39.5], [34, 24.5]], A2 = [[34, 24.5], [34, 39.5], [46, 32], [46, 32]];
+  const Bp = [[22, 19], [22, 45], [29, 45], [29, 19]], B2 = [[35, 19], [35, 45], [42, 45], [42, 19]];
+  const poly = (X, Y) => 'M' + X.map((p, i) => `${M(p[0], Y[i][0], m)} ${M(p[1], Y[i][1], m)}`).join(' L') + 'Z';
+  pp.setAttribute('d', poly(A, Bp) + poly(A2, B2));
+  // progression : lecture, glissé direct, relâché
+  let p;
+  if (t < 3.0) p = pAt0; else if (t < 4.0) p = pAt0 + (t - 3.0) * .03;
+  else if (t < 5.0) p = C((mx - (CX - 300 + 34)) / 532); else p = pRel + (t - 5.0) * .03;
+  const held = t >= 4.0 && t < 5.0;
+  const ks = 1 + .45 * (spring(t - 4.0, 300, 26) - spring(t - 5.0, 300, 26));
+  fill.style.width = 532 * p + 'px'; knob.style.left = (34 + 532 * p - 12) + 'px'; knob.style.transform = `scale(${ks})`;
+  const sec = Math.round(p * 210); tCur.textContent = `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+  // volume
+  let v = v0; if (t >= 6.0) v = t < 7.0 ? C((mx - VOL_L) / VOL_W) : 1;
+  lVol.e.style.left = '0px'; lVol.e.style.width = W + 'px';
+  vFill.style.width = Math.max(84, W * v) + 'px';
+  // interrupteur -> indicateur d'onglets (bords sur ressorts différents)
+  const off = (W - 560) / 2;
+  const tabR = (i) => [10 + i * 180, 10 + i * 180 + 180];
+  const FAST = [420, 34], SLOW = [170, 24];
+  const LE = [[8.0, 72, ...SLOW], [8.5, -272, ...FAST], [9.0, 180, ...SLOW], [9.5, 180, ...SLOW]];
+  const RE = [[8.0, 72, ...FAST], [8.5, -160, ...SLOW], [9.0, 180, ...FAST], [9.5, 180, ...FAST]];
+  const iL = track(t, 210, LE), iR = track(t, 278, RE);
+  ind.style.left = iL + 'px'; ind.style.width = Math.max(0, iR - iL) + 'px';
+  const tabsOn = spring(t - 8.5, 220, 27);
+  tabL.forEach((e, i) => { e.style.opacity = C((t - 8.6) / .2) * (1 - P(t, 12.0, .12)); const act = (t >= 9.5 ? 2 : t >= 9.0 ? 1 : 0) === i; e.style.color = act ? '#0e0e10' : '#7a7a78'; });
+  tabsBg.style.opacity = tabsOn > .02 ? 1 : 0;
+  // l'onglet monte en tête de carte quand le graphique s'ouvre
+  const up = spring(t - 10.0, 220, 27);
+  lTog.e.style.top = ((H - 88) / 2 - up * (480 / 2 - 44 - 22)) + 'px';
+  lTog.e.style.transform = `scale(${M(1, .9, up)})`;
+  // graphique
+  const L = ln.getTotalLength(), dr = io(P(t, 10.45, .6));
+  ln.style.strokeDasharray = L; ln.style.strokeDashoffset = L * (1 - dr);
+  const hv = t >= 11.0 ? (t >= 11.45 ? 5 : 3) : -1;
+  const hp = spring(t - 11.45, 260, 26);
+  const hx = M(PTS[3][0], PTS[5][0], hp), hy = M(PTS[3][1], PTS[5][1], hp);
+  const hOn = o3(P(t, 10.98, .2));
+  hd.setAttribute('cx', hx); hd.setAttribute('cy', hy); hd.setAttribute('r', 9 * hOn); guide.setAttribute('x1', hx); guide.setAttribute('x2', hx); guide.style.opacity = hOn;
+  tip.textContent = VALS[hv < 0 ? 3 : hv]; tip.style.left = (hx - tip.offsetWidth / 2) + 'px'; tip.style.top = (hy - 70 - 10 * (1 - hOn)) + 'px'; tip.style.opacity = hOn;
+  chVal.textContent = VALS[6];
+  // palette : frappe et filtre
+  const typedQ = 'for'.slice(0, [12.45, 12.55, 12.65].filter((k) => t >= k).length);
+  q.textContent = typedQ; qPh.style.visibility = typedQ ? 'hidden' : 'visible';
+  qCaret.style.left = (76 + q.offsetWidth + 2) + 'px'; qCaret.style.opacity = Math.floor(t * 4) % 2 === 0 || (t > 12.4 && t < 12.8) ? 1 : 0;
+  const keep = (s) => !typedQ || s.toLowerCase().includes(typedQ);
+  let y = 104;
+  rows.forEach((r, i) => {
+    const k = keep(ITEMS[i][0]) ? 1 : 0;
+    const hh = 62 * (k ? 1 : 1 - spring(t - 12.68, 300, 30));
+    r.style.top = y + 'px'; r.style.height = hh + 'px'; r.style.opacity = k ? 1 : C(hh / 62 * 1.5 - .5); y += hh + 4 * (hh / 62);
+  });
+  const hiIdx = typedQ.length === 3 ? 2 : 0;
+  hl.style.top = parseFloat(rows[hiIdx].style.top) + 'px';
+  kbd.style.visibility = t < 12.95 ? 'visible' : 'hidden';
+  enterK.style.visibility = t >= 12.95 ? 'visible' : 'hidden';
+  enterK.style.transform = `scale(${t >= 13.0 ? 1 - .12 * Math.sin(Math.PI * C((t - 13.0) / .15)) : 1})`;
+
+  // curseur : coordonnées écran (taille constante)
+  const scy = 720 + (my - 720) * Z;
+  let cs = 1; CLICKS.forEach((c) => { if (t >= c && t < c + .18) cs -= .14 * Math.sin(Math.PI * (t - c) / .18); });
+  HOLDS.forEach(([a, b]) => { if (t >= a + .09 && t < b) cs = Math.min(cs, .9); });
+  cursor.style.transform = `translate(${720 + (mx - 720) * Z - extra / 2 * Z - 4}px,${scy - 3}px) scale(${cs})`;
+}
+window.seek = seek;
+window.render = (t) => { seek(t); return new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); };
+window.ready = (async () => { await document.fonts.load('500 40px U'); await document.fonts.ready; seek(0); return true; })();
+if (location.hash === '#play') { let t = 0, play = true, last = performance.now(); const tick = (n) => { if (play) t = (t + (n - last) / 1000) % DUR; last = n; seek(t); requestAnimationFrame(tick); }; addEventListener('keydown', (e) => { if (e.code === 'Space') play = !play; if (e.code === 'ArrowRight') t += 1 / 60; if (e.code === 'ArrowLeft') t -= 1 / 60; if (e.code === 'KeyR') t = 0; }); requestAnimationFrame(tick); }
+</script></body></html>

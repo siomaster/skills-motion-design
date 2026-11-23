@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><title>MaMarque pub 40s</title>
+<style>
+@font-face{font-family:U;src:url(fonts/Urbanist-VF.ttf);font-weight:100 900}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1920px;height:1080px;overflow:hidden;background:#f5f5f2;font-family:U;font-weight:500;color:#0e0e10}
+#stage{position:absolute;inset:0;overflow:hidden;background:#f5f5f2}
+#cam{position:absolute;left:0;top:0;width:1920px;height:1080px;transform-origin:0 0}
+.a{position:absolute}
+.line{overflow:hidden;white-space:pre}
+.line>span{display:inline-block}
+.card{position:absolute;width:330px;height:440px;border-radius:28px;background:#0e0e10;overflow:hidden;color:#fff}
+.card img{width:330px;height:200px;object-fit:cover;display:block}
+#over{position:absolute;inset:0;background:#0e0e10;z-index:70;visibility:hidden;overflow:hidden;color:#fff}
+.big{position:absolute;left:0;right:0;text-align:center;font:500 92px U;letter-spacing:-.035em;white-space:nowrap}
+.wm{display:inline-block;overflow:hidden;vertical-align:top;padding:0 .03em .14em;margin-bottom:-.14em}
+.wm>span{display:inline-block}
+.row{position:absolute;left:16px;right:16px;display:flex;align-items:center;gap:14px}
+</style></head><body>
+<div id="stage"><div id="cam"></div><div id="over"></div></div>
+<script>
+/* ===== constantes ===== */
+const DUR = 39.6; window.DUR = DUR;
+const BLUE = '#00A1FF', ORANGE = '#ff6a2a', INK = '#0e0e10', GREY = '#9a9a96';
+const C = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const M = (a, b, p) => a + (b - a) * p;
+const P = (t, a, d) => C((t - a) / d);
+const E = { io: (x) => (x < .5 ? 4 * x * x * x : 1 - (-2 * x + 2) ** 3 / 2), o3: (x) => 1 - (1 - x) ** 3, o4: (x) => 1 - (1 - x) ** 4, i3: (x) => x * x * x, qio: (x) => (x < .5 ? 8 * x ** 4 : 1 - (-2 * x + 2) ** 4 / 2) };
+function spring(t, k = 170, d = 26) { if (t <= 0) return 0; const w = Math.sqrt(k), z = d / (2 * w); if (z >= 1) return 1 - Math.exp(-w * t) * (1 + w * t); const wd = w * Math.sqrt(1 - z * z); return 1 - Math.exp(-z * w * t) * (Math.cos(wd * t) + (z * w / wd) * Math.sin(wd * t)); }
+function mulberry32(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function el(tag, cls, parent, html = '', style = '') { const e = document.createElement(tag); if (cls) e.className = cls; if (html) e.innerHTML = html; if (style) e.style.cssText = style; parent.appendChild(e); return e; }
+const box = (e, x, y, w, h) => { e.style.left = x + 'px'; e.style.top = y + 'px'; e.style.width = w + 'px'; e.style.height = h + 'px'; };
+const vis = (e, on) => { e.style.visibility = on ? 'inherit' : 'hidden'; };
+const cam = document.getElementById('cam'), over = document.getElementById('over');
+const IMG = 'img/';
+const CK = (c = '#fff', s = 16, w = 3) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>`;
+const rise = (e, t, t0, d = .45) => { e.firstChild.style.transform = `translateY(${(1 - E.o4(P(t, t0, d))) * 120}%)`; };
+
+/* ===== téléphone ===== */
+const S = { x: 746, y: 90, w: 428, h: 900 };
+const frame = el('div', 'a', cam, '', `background:${INK};z-index:10`);
+const scr = el('div', 'a', cam, '', 'background:#fff;overflow:hidden;z-index:11');
+const status = el('div', 'a', scr, `<div class="a" style="left:38px;top:16px;font:600 17px U">9:41</div><div class="a" style="left:155px;top:11px;width:118px;height:34px;border-radius:17px;background:${INK}"></div><svg class="a" style="right:30px;top:19px" width="74" height="14" viewBox="0 0 74 14"><rect x="0" y="9" width="3.5" height="5" rx="1" fill="#0e0e10"/><rect x="5.5" y="6.5" width="3.5" height="7.5" rx="1" fill="#0e0e10"/><rect x="11" y="4" width="3.5" height="10" rx="1" fill="#0e0e10"/><rect x="16.5" y="1" width="3.5" height="13" rx="1" fill="#0e0e10"/><rect x="50" y="1.5" width="21" height="11" rx="3" stroke="#0e0e10" stroke-width="1.4" fill="none"/><rect x="52" y="3.5" width="15" height="7" rx="1.6" fill="#0e0e10"/></svg>`, 'left:0;top:0;width:428px;height:56px;z-index:30');
+// A · fil
+const feedV = el('div', 'a', scr, '', 'left:0;top:0;width:428px;height:900px');
+el('div', 'a', feedV, 'Pour toi', 'left:24px;top:64px;font:600 26px U;letter-spacing:-.02em');
+const feedBox = el('div', 'a', feedV, '', 'left:0;top:108px;width:428px;height:792px;overflow:hidden');
+const feed = el('div', 'a', feedBox, '', 'left:16px;width:396px;top:0');
+const PAL = ['#FFE0C2', '#D6ECFF', '#FFD9E6', '#DDF5E7', '#E9E1FF', '#FFF0C4'];
+let fh = ''; for (let k = 0; k < 6; k++) PAL.forEach((c, i) => { fh += `<div style="margin-bottom:18px;border-radius:22px;box-shadow:0 0 0 1px #eeeeea;padding:14px"><div style="display:flex;gap:10px;align-items:center"><i style="width:34px;height:34px;border-radius:17px;background:${PAL[(i + 2) % 6]}"></i><i style="height:11px;width:${110 + (i * 31) % 70}px;border-radius:6px;background:#e7e7e3"></i></div><div style="height:${200 + (i % 3) * 50}px;border-radius:16px;background:${c};margin-top:12px"></div></div>`; });
+feed.innerHTML = fh;
+const ban = (title, val, icon) => el('div', 'a', scr, `<span style="width:40px;height:40px;border-radius:12px;background:${INK};display:flex;align-items:center;justify-content:center;flex:none">${icon}</span><span style="flex:1"><span style="display:block;font:600 15px U">${title}</span><span class="v" style="display:block;font:500 14px U;color:#6e6e6a;margin-top:2px">${val}</span></span><span style="font:500 12px U;color:#a3a3a0">maintenant</span>`, 'left:12px;width:404px;height:66px;border-radius:22px;background:rgba(242,242,240,.97);box-shadow:0 10px 30px -12px rgba(0,0,0,.25);display:flex;align-items:center;gap:12px;padding:0 14px;z-index:20');
+const HG = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"><path d="M7 3h10M7 21h10M8 3c0 5 8 5 8 9s-8 4-8 9M16 3c0 5-8 5-8 9"/></svg>';
+const EU = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"><path d="M17 6.5A6.5 6.5 0 1 0 17 17.5M4 10.5h9M4 13.5h9"/></svg>';
+const ban1 = ban('Temps d\'écran', '0 h 00 aujourd\'hui', HG), ban2 = ban('Revenus générés en ligne', '0 €', EU);
+// B · barre de recherche lumineuse en bas
+const CMP = { x: 16, y: 800, w: 396, h: 64 };
+const glow = el('div', 'a', scr, '', `left:${CMP.x - 12}px;top:${CMP.y - 12}px;width:${CMP.w + 24}px;height:${CMP.h + 24}px;border-radius:44px;filter:blur(14px);z-index:21`);
+const cmp = el('div', 'a', scr, '', `left:${CMP.x}px;top:${CMP.y}px;width:${CMP.w}px;height:${CMP.h}px;border-radius:32px;background:#fff;box-shadow:0 0 0 1px rgba(14,14,16,.08);overflow:hidden;z-index:22`);
+const ripple = el('div', 'a', cmp, '', `border-radius:50%;background:${BLUE}`);
+const ph = el('div', 'a', cmp, 'Rechercher', 'left:22px;top:20px;font:500 18px/24px U;color:#a3a3a0');
+const typed = el('div', 'a', cmp, '', 'left:22px;top:20px;font:500 18px/24px U;white-space:pre;z-index:2');
+const caret = el('div', 'a', cmp, '', `width:2px;height:22px;background:${BLUE};top:21px;z-index:2`);
+const QUERY = 'apprendre une compétence qui rapporte';
+const rnd = mulberry32(5); const KEYS = []; { let t = 5.95; for (let i = 0; i < QUERY.length; i++) { KEYS.push(t); t += .046 + rnd() * .03 + (QUERY[i] === ' ' ? .03 : 0); } }
+const send = el('div', 'a', scr, CK('#fff', 0, 0).replace('', '') + `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5.5 11.5L12 5l6.5 6.5"/></svg>`, `left:${CMP.x + CMP.w - 52}px;top:${CMP.y + 10}px;width:44px;height:44px;border-radius:22px;background:${BLUE};display:flex;align-items:center;justify-content:center;z-index:23`);
+// F · classe (dans le téléphone)
+const clsV = el('div', 'a', scr, '', 'left:0;top:0;width:428px;height:900px;z-index:5');
+const tabsRow = el('div', 'a', clsV, '', 'left:0;top:66px;width:700px;height:44px');
+const TABS = ['Classroom', 'Communauté', 'Certification', 'Ressources'], TW = [124, 140, 136, 132];
+const TX = []; { let x = 16; TW.forEach((w) => { TX.push(x); x += w + 8; }); }
+const tabL = TABS.map((s, i) => el('div', 'a', tabsRow, s, `left:${TX[i]}px;width:${TW[i]}px;top:0;height:44px;line-height:44px;text-align:center;border-radius:22px;font:500 16px U;box-shadow:inset 0 0 0 1px #e4e4e0;z-index:1`));
+const vClass = el('div', 'a', clsV, '', 'left:0;top:0;width:428px;height:900px');
+el('div', 'a', vClass, `<img src="${IMG}c_web.jpg" style="width:100%;height:100%;object-fit:cover"><div class="a" style="left:12px;top:12px;padding:6px 11px;border-radius:999px;background:rgba(14,14,16,.8);color:#fff;font:500 12px U;letter-spacing:.08em">MODULE 2 · LEÇON 3</div><div class="a" style="right:12px;top:12px;padding:6px 11px;border-radius:999px;background:rgba(14,14,16,.8);color:#fff;font:500 12px U">12:48</div>`, 'left:16px;top:126px;width:396px;height:223px;border-radius:18px;overflow:hidden');
+el('div', 'a', vClass, 'Techniques avancées', 'left:18px;top:366px;font:600 24px U;letter-spacing:-.02em');
+el('div', 'a', vClass, 'Web Builder pro', `left:18px;top:400px;font:500 16px U;color:${GREY}`);
+el('div', 'a', vClass, 'Programme', 'left:18px;top:446px;font:600 18px U');
+const LES = ['Découvrir l\'outil', 'Premier projet guidé', 'Techniques avancées', 'Projet final'];
+const lRows = LES.map((s, i) => el('div', 'row', vClass, `<span class="bx" style="width:26px;height:26px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex:none"></span><span style="font:500 17px U">${s}</span>`, `top:${484 + i * 54}px;height:46px;padding:0 12px;border-radius:14px`));
+const lCount = el('div', 'a', vClass, '', `left:18px;top:706px;font:500 14px U;color:${GREY}`);
+const vRes = el('div', 'a', clsV, '', 'left:0;top:0;width:428px;height:900px');
+[0, 1, 2, 3].forEach((i) => el('div', 'row', vRes, `<span style="width:44px;height:52px;border-radius:10px;box-shadow:inset 0 0 0 1.5px #dcdcd8;flex:none"></span><span style="flex:1"><i style="display:block;height:12px;width:${[220, 170, 240, 150][i]}px;border-radius:6px;background:#e7e7e3"></i><i style="display:block;height:10px;width:${[120, 150, 90, 130][i]}px;border-radius:5px;background:#efefec;margin-top:10px"></i></span>`, `top:${130 + i * 82}px;height:70px;padding:0 12px;border-radius:16px;box-shadow:0 0 0 1px #eeeeea`));
+const vCom = el('div', 'a', clsV, '', 'left:0;top:0;width:428px;height:900px');
+[['Pose tes questions', 'Entraide entre membres, 7j/7', 'm03'], ['Partage tes créations', 'Mise en avant des meilleures créations', 'm10'], ['Progresse avec les autres', 'Lives et replays avec les coachs', 'm16']].forEach(([a, b2, m], i) =>
+  el('div', 'row', vCom, `<img src="${IMG + m}.jpg" style="width:52px;height:52px;border-radius:26px;object-fit:cover;flex:none"><span><span style="display:block;font:600 18px U">${a}</span><span style="display:block;font:500 14px U;color:${GREY};margin-top:4px">${b2}</span></span>`, `top:${130 + i * 96}px;height:84px;padding:0 14px;border-radius:20px;background:#f4f4f1`));
+// G · fiche produit
+const prodV = el('div', 'a', scr, '', 'left:0;top:0;width:428px;height:900px;z-index:6');
+el('div', 'a', prodV, `<img src="${IMG}c_web.jpg" style="width:100%;height:100%;object-fit:cover">`, 'left:16px;top:66px;width:396px;height:223px;border-radius:18px;overflow:hidden');
+el('div', 'a', prodV, 'Web Builder pro', 'left:18px;top:308px;font:600 28px U;letter-spacing:-.02em');
+el('div', 'a', prodV, '4 modules · 10 chapitres', `left:18px;top:348px;font:500 16px U;color:${GREY}`);
+el('div', 'a', prodV, `<span style="font:600 46px U;letter-spacing:-.02em">39 €</span><span style="font:500 20px U;color:#b0b0ac;text-decoration:line-through;margin-left:14px">347 €</span><span style="font:500 14px U;color:#fff;background:${BLUE};padding:5px 10px;border-radius:999px;margin-left:12px;vertical-align:6px">−89 %</span>`, 'left:18px;top:384px;white-space:nowrap');
+const pRows = ['Pas d\'abonnement', 'Tu paies une seule fois', 'Accès à vie'].map((s, i) => el('div', 'row', prodV, `<span style="width:28px;height:28px;border-radius:14px;background:${BLUE};display:flex;align-items:center;justify-content:center;flex:none">${CK('#fff', 15)}</span><span style="font:500 18px U">${s}</span>`, `top:${470 + i * 52}px;height:40px`));
+const BUY = { x: 16, y: 800, w: 396, h: 64 };
+const buy = el('div', 'a', prodV, '', `left:${BUY.x}px;top:${BUY.y}px;width:${BUY.w}px;height:${BUY.h}px;border-radius:32px;background:${INK};color:#fff;overflow:hidden`);
+const buyA = el('div', 'a', buy, 'Acheter · 39 €', 'left:0;right:0;top:20px;text-align:center;font:500 19px/24px U');
+const buyB = el('div', 'a', buy, '✓ Accès à vie', 'left:0;right:0;top:20px;text-align:center;font:500 19px/24px U');
+const dots3 = [0, 1, 2].map((i) => el('div', 'a', buy, '', `left:${184 + i * 14}px;top:28px;width:8px;height:8px;border-radius:4px;background:#fff`));
+
+/* ===== hors téléphone ===== */
+// C · inondation bleue -> logo
+const flood = el('div', 'a', cam, '', `background:${BLUE};z-index:40`);
+const LG = { h: 130 }; LG.w = LG.h * 277 / 85; LG.cx = 960; LG.cy = 430; LG.ix = LG.cx - LG.w / 2 + LG.h / 2;
+const logo = el('img', 'a', cam, '', `left:${LG.cx - LG.w / 2}px;top:${LG.cy - LG.h / 2}px;height:${LG.h}px;z-index:41`); logo.src = IMG + 'logo-noir.svg';
+const T1 = el('div', 'a line', cam, '<span>La plateforme qui t\'aide à apprendre</span>', 'left:0;width:1920px;text-align:center;top:560px;font:500 48px U;letter-spacing:-.02em;z-index:41');
+const T2 = el('div', 'a line', cam, `<span>des compétences digitales <span style="color:${BLUE}">concrètes.</span></span>`, 'left:0;width:1920px;text-align:center;top:624px;font:500 48px U;letter-spacing:-.02em;z-index:41');
+const T3 = el('div', 'a line', cam, '<span>Même si tu pars de zéro.</span>', 'left:0;width:1920px;text-align:center;top:580px;font:500 64px U;letter-spacing:-.03em;z-index:41');
+// D · cartes de formation
+const DATA = [['Intelligence artificielle', 15.18, 'c_minia', 'Ai Minia Cash', 'Des miniatures YouTube percutantes avec l\'IA', '19 €', '147 €'], ['Sites web', 16.62, 'c_web', 'Web Builder pro', 'Des sites pros sans écrire une ligne de code', '39 €', '347 €'], ['Design', 17.82, 'c_design', 'Funnel Design School', 'Des tunnels de vente modernes qui convertissent', '69 €', '297 €'], ['Montage vidéo', 18.46, 'c_motion', 'Motion Design Opus 5.5', 'Le montage vidéo avec Claude Opus 5.5', '29 €', '97 €'], ['Business en ligne', 19.5, 'c_prosp', 'Prospection 3.0', 'Trouver, qualifier et convertir des clients', '19 €', '197 €']];
+const cards = DATA.map(([cat, t0, im, n, d, p, o], i) => {
+  const c = el('div', 'card', cam, `<img src="${IMG + im}.jpg"><div style="padding:20px 22px"><div style="font:600 24px U;letter-spacing:-.02em;white-space:nowrap">${n}</div><div style="font:500 15px/21px U;color:#9a9aa2;margin-top:8px;height:42px">${d}</div><div style="display:flex;align-items:baseline;gap:10px;margin-top:40px"><span style="font:600 30px U;color:#fff">${p}</span><span style="font:500 16px U;color:#6e6e74;text-decoration:line-through">${o}</span><span style="margin-left:auto;font:500 13px U;color:#d6d6d2;padding:6px 11px;border-radius:999px;box-shadow:inset 0 0 0 1px #3a3a3e">Accès à vie</span></div></div>`, `z-index:${50 + i}`);
+  const pill = el('div', 'a', cam, cat, `padding:10px 18px;border-radius:999px;background:${BLUE};color:#fff;font:500 20px U;white-space:nowrap;z-index:60;transform-origin:50% 100%`);
+  return { c, pill, t0 };
+});
+const seed = el('div', 'a', cam, '', `border-radius:50%;background:${BLUE};z-index:45`);
+// E · interrupteur Théorie / Pratique
+const TG = { x: 960, y: 540, w: 560, h: 116 };
+const track = el('div', 'a', cam, '', 'background:#e9e9e5;z-index:42;overflow:hidden');
+const knob = el('div', 'a', cam, '', 'background:#fff;z-index:43;box-shadow:0 6px 16px -6px rgba(0,0,0,.25)');
+const knobLab = el('div', 'a', knob, '', 'left:0;right:0;top:0;bottom:0;display:flex;align-items:center;justify-content:center;font:500 16px U;color:#fff;white-space:nowrap;overflow:hidden');
+const lTh = el('div', 'a', cam, 'Théorie', 'font:500 40px U;z-index:44;text-align:center;width:270px');
+const lPr = el('div', 'a', cam, 'Pratique', 'font:500 40px U;z-index:44;text-align:center;width:270px');
+// curseur
+const cursor = el('div', 'a', cam, `<svg width="30" height="30" viewBox="0 0 24 24"><path d="M4 2.5l15.5 9.2-6.9 1.4 3.9 7.3-3 1.6-3.9-7.4L4.9 19z" fill="#fff" stroke="#0e0e10" stroke-width="1.5" stroke-linejoin="round"/></svg>`, 'z-index:90;transform-origin:0 0');
+// H · page noire
+const page = el('div', 'a', cam, '', `background:${INK};z-index:65`);
+const oLab = el('div', 'a', over, '✓ Accès à vie', 'left:0;top:0;font:500 19px U;white-space:nowrap');
+function words(txt, y, times) { const d = el('div', 'big', over, '', `top:${y}px`); const ws = []; let acc = false; txt.split(' ').forEach((w, i, a) => { if (w.startsWith('*')) acc = true; const m = el('span', 'wm', d); const s = el('span', '', m, w.replace(/\*/g, '')); if (acc) s.style.color = BLUE; ws.push({ s, t: times[Math.min(i, times.length - 1)] }); if (w.endsWith('*') || w.endsWith('*.')) acc = false; if (i < a.length - 1) m.insertAdjacentHTML('afterend', ' '); }); return { d, ws }; }
+const O1 = words('Apprends une compétence.', 330, [34.29, 34.61, 34.77]);
+const O2 = words('Transforme-la en *revenus.*', 450, [35.49, 36.21, 36.37]);
+const oDot = el('div', 'a', over, '', `border-radius:50%;background:${BLUE}`);
+const oLogo = el('img', 'a', over, '', `height:${LG.h}px`); oLogo.src = IMG + 'logo-blanc.svg';
+const oAbove = el('div', 'a line', over, '<span>Rendez-vous sur</span>', 'left:0;right:0;top:380px;text-align:center;font:500 32px U;color:#8a8a86');
+const oBelow = el('div', 'a line', over, `<span style="color:${BLUE}">mamarque.site</span>`, 'left:0;right:0;top:620px;text-align:center;font:500 64px U;letter-spacing:-.02em');
+
+/* ===== caméra : [t, zoom, x, y], zoom en log ===== */
+const CMPW = { x: S.x + CMP.x + CMP.w / 2, y: S.y + CMP.y + CMP.h / 2 };
+const BTNW = { x: S.x + BUY.x + BUY.w / 2, y: S.y + BUY.y + BUY.h / 2 };
+const CAM = [[0, 1.5, 960, 400], [4.4, 1.72, 960, 380], [5.4, 2.55, 960, CMPW.y - 40], [8.7, 2.8, 960, CMPW.y - 40], [9.45, 1.08, 960, 540], [9.5, 1.08, 960, 540], [14.9, 1.14, 960, 520], [15.4, 1.0, 960, 560], [20.3, 1.06, 960, 560], [21.0, 1.5, 960, 540], [23.6, 1.62, 960, 540], [24.4, 1.12, 960, 540], [28.3, 1.2, 960, 520], [29.0, 1.18, 960, 560], [33.4, 1.32, 960, 640], [34.25, 3.6, BTNW.x, BTNW.y], [DUR, 3.6, BTNW.x, BTNW.y]];
+function camAt(t) { let i = 0; while (i < CAM.length - 2 && t >= CAM[i + 1][0]) i++; const [a, z0, x0, y0] = CAM[i], [b, z1, x1, y1] = CAM[i + 1]; const e = E.io(C((t - a) / (b - a))); return { z: Math.exp(M(Math.log(z0), Math.log(z1), e)), x: M(x0, x1, e), y: M(y0, y1, e) }; }
+
+/* ================= SEEK ================= */
+function seek(t) {
+  const K = camAt(t);
+  cam.style.transform = `translate(960px,540px) scale(${K.z}) translate(${-K.x}px,${-K.y}px)`;
+  const toS = (x, y) => [960 + (x - K.x) * K.z, 540 + (y - K.y) * K.z];
+
+  /* téléphone : visible au début, puis revient depuis l'interrupteur (24 s) */
+  const ph1 = t < 9.9, ph2 = t >= 23.55 && t < 34.4;
+  let R = { ...S }, bez = 11, rad = 55;
+  if (ph2) {
+    const ex = E.qio(P(t, 23.55, .8));
+    const r0 = { x: TG.x - TG.w / 2, y: TG.y - TG.h / 2, w: TG.w, h: TG.h };
+    R = { x: M(r0.x, S.x, ex), y: M(r0.y, S.y, ex), w: M(r0.w, S.w, ex), h: M(r0.h, S.h, ex) }; bez = 11 * ex; rad = M(58, 55, ex);
+  }
+  vis(frame, ph1 || ph2); vis(scr, ph1 || ph2);
+  box(scr, R.x, R.y, R.w, R.h); scr.style.borderRadius = rad + 'px';
+  box(frame, R.x - bez, R.y - bez, R.w + 2 * bez, R.h + 2 * bez); frame.style.borderRadius = (rad + bez) + 'px';
+  const sc = R.w / S.w; [status, feedV, clsV, prodV].forEach((e) => { e.style.transform = `scale(${sc})`; e.style.transformOrigin = '0 0'; });
+  status.style.opacity = ph2 ? C((t - 24.1) / .25) : 1;
+
+  /* A · fil + notifications */
+  vis(feedV, t < 9.9);
+  feed.style.transform = `translateY(${-(1700 * E.o3(C(t / 4.8)) + 90 * Math.min(t, 4.8))}px)`;
+  const mins = Math.round(E.io(P(t, 1.0, 2.0)) * 192);
+  ban1.querySelector('.v').textContent = `${Math.floor(mins / 60)} h ${String(mins % 60).padStart(2, '0')} aujourd'hui`;
+  const b1 = spring(t - 0.96, 220, 24), b2 = spring(t - 3.52, 220, 24), bOut = E.i3(P(t, 4.5, .4));
+  vis(ban1, t >= .9 && t < 5); vis(ban2, t >= 3.45 && t < 5);
+  ban1.style.top = (60 + (1 - b1) * -120 + 76 * b2 - bOut * 200) + 'px';
+  ban2.style.top = (60 + (1 - b2) * -120 - bOut * 200) + 'px';
+  ban1.style.transform = `scale(${1 - .04 * b2})`;
+
+  /* B · recherche lumineuse */
+  const cIn = spring(t - 4.6, 200, 26);
+  vis(cmp, t >= 4.55 && t < 9.9); vis(glow, t >= 4.55 && t < 9.9); vis(send, t >= 4.55 && t < 9.9);
+  const cy = (1 - cIn) * 160;
+  [cmp, glow, send].forEach((e) => (e.style.transform = `translateY(${cy}px)`));
+  glow.style.background = `conic-gradient(from ${t * 140}deg,#ff7eb6,#ff9a3c,#ffd23f,#38d6ff,#a78bfa,#ff7eb6)`;
+  glow.style.opacity = .95 * (1 - C((t - 9.3) / .2));
+  const n = KEYS.filter((k) => t >= k).length;
+  typed.textContent = QUERY.slice(0, n); vis(ph, n === 0);
+  caret.style.left = (22 + typed.offsetWidth + 1) + 'px'; vis(caret, t > 5.0 && t < 8.75 && (Math.floor(t * 3) % 2 === 0 || (t > KEYS[0] && t < KEYS[KEYS.length - 1] + .1)));
+  const pr = t >= 8.75 ? 1 - .14 * Math.sin(Math.PI * C((t - 8.75) / .2)) : 1;
+  send.style.transform += ` scale(${pr})`;
+  const rp = E.o3(P(t, 8.75, .3)); vis(ripple, t >= 8.75); const rr = rp * 420; box(ripple, 374 - rr, 32 - rr, 2 * rr, 2 * rr);
+  typed.style.color = t >= 8.85 ? '#fff' : INK;
+
+  /* C · inondation depuis le bouton -> cercle du logo */
+  const fOn = t >= 9.5 && t < 10.4; vis(flood, fOn);
+  const sb = { x: S.x + CMP.x + CMP.w - 30, y: S.y + CMP.y + 32 };
+  if (fOn) {
+    const vw = 960 / K.z, vh = 540 / K.z;
+    const far = Math.max(...[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([a, b2]) => Math.hypot(K.x + a * vw - sb.x, K.y + b2 * vh - sb.y))) * 1.05;
+    const g = E.o3(P(t, 9.5, .35)), c = E.qio(P(t, 9.92, .45));
+    const r = M(M(22, far, g), LG.h / 2, c), cx = M(sb.x, LG.ix, c), cy2 = M(sb.y, LG.cy, c);
+    box(flood, cx - r, cy2 - r, 2 * r, 2 * r); flood.style.borderRadius = '50%';
+  }
+  const lOn = t >= 10.36 && t < 15.6; vis(logo, lOn);
+  const wipe = E.qio(P(t, 10.4, .55)), unwipe = E.qio(P(t, 14.75, .4));
+  const ico = 85 / 277 * 100;
+  logo.style.clipPath = `inset(0 ${(100 - ico) * (1 - wipe + unwipe)}% 0 0)`;
+  // le cercle du logo glisse au centre, devient la graine des cartes
+  const toC = E.qio(P(t, 14.75, .45));
+  logo.style.transform = `translate(${(960 - LG.ix) * toC}px,${(560 - LG.cy) * toC}px)`;
+  vis(T1, t >= 10.4 && t < 13.6); vis(T2, t >= 11.8 && t < 13.6); vis(T3, t >= 13.6 && t < 15.1);
+  T1.firstChild.style.transform = `translateY(${(1 - E.o4(P(t, 10.48, .5))) * 120 - E.i3(P(t, 13.2, .3)) * 120}%)`;
+  T2.firstChild.style.transform = `translateY(${(1 - E.o4(P(t, 12.1, .5))) * 120 - E.i3(P(t, 13.2, .3)) * 120}%)`;
+  T3.firstChild.style.transform = `translateY(${(1 - E.o4(P(t, 13.68, .5))) * 120 - E.i3(P(t, 14.75, .3)) * 120}%)`;
+
+  /* D · cartes : jaillissent du cercle, la bande se pose sur chaque compétence */
+  const seedOn = t >= 15.15 && t < 15.6; vis(seed, seedOn);
+  const sr = 65 * (1 - E.i3(P(t, 15.2, .3))); box(seed, 960 - sr, 560 - sr, 2 * sr, 2 * sr);
+  let cpos = 0; DATA.forEach((d, i) => { if (i) cpos += spring(t - d[1] + .05, 200, 26); });
+  cards.forEach((o, i) => {
+    const st = 15.2 + Math.abs(i) * .05;
+    const b = spring(t - st, 170, 22);
+    const on = t >= 15.2 && t < 21.0; vis(o.c, on);
+    let cx = M(960, 960 + (i - cpos) * 370, b), cy3 = 560, s = M(.2, 1, b), rot = (1 - b) * ((i * 53) % 17 - 8);
+    const act = Math.max(0, 1 - Math.abs(i - cpos));
+    cy3 -= 22 * act; s *= 1 + .04 * act;
+    // sortie : les autres glissent, la carte active devient le bouton de l'interrupteur
+    const ex = E.i3(P(t, 20.2, .45));
+    if (i !== 4) cx += (i < 4 ? -1 : 1) * ex * 1600;
+    let w = 330, h = 440, x = cx - 165, y = cy3 - 220, br = 28;
+    if (i === 4) { const m = E.qio(P(t, 20.3, .65)); const kr = { x: TG.x - TG.w / 2 + 10, y: TG.y - TG.h / 2 + 10, w: 270, h: 96 }; x = M(x, kr.x, m); y = M(y, kr.y, m); w = M(330, kr.w, m); h = M(440, kr.h, m); br = M(28, 48, m); s = M(s, 1, m); o.c.style.background = `rgb(${Math.round(M(14, 255, m))},${Math.round(M(14, 255, m))},${Math.round(M(16, 255, m))})`; o.c.firstChild.style.opacity = 1 - C(m * 2); o.c.children[1].style.opacity = 1 - C(m * 2); vis(o.c, on && m < 1); }
+    box(o.c, x, y, w, h); o.c.style.borderRadius = br + 'px';
+    o.c.style.transform = `scale(${s}) rotate(${rot}deg)`;
+    const pp = spring(t - o.t0, 260, 22) * (1 - (i < 4 ? spring(t - DATA[i + 1][1], 300, 30) : E.i3(P(t, 20.1, .2))));
+    vis(o.pill, t >= o.t0 && pp > .01 && t < 20.4);
+    o.pill.style.left = (960 - o.pill.offsetWidth / 2) + 'px'; o.pill.style.top = (560 - 220 - 22 - 64) + 'px';
+    o.pill.style.transform = `scale(${pp})`;
+  });
+
+  /* E · interrupteur : le bouton à deux bords */
+  const tOn = t >= 20.4 && t < 24.4; vis(track, tOn && t < 23.6); vis(lTh, tOn && t < 23.7); vis(lPr, tOn && t < 23.7);
+  const tg = E.qio(P(t, 20.45, .6));
+  box(track, TG.x - TG.w / 2 * tg, TG.y - TG.h / 2, TG.w * tg, TG.h); track.style.borderRadius = TG.h / 2 + 'px';
+  const flip = 22.95, k0 = TG.x - TG.w / 2 + 10, k1 = TG.x + 10;
+  const L = k0 + (k1 - k0) * spring(t - flip, 170, 24), Rr = k0 + 270 + (k1 - k0) * spring(t - flip, 420, 34);
+  const kOn = t >= 20.95 && t < 24.4; vis(knob, kOn);
+  const onC = spring(t - flip, 300, 30);
+  knob.style.background = `rgb(${Math.round(M(255, 0, onC))},${Math.round(M(255, 161, onC))},${Math.round(M(255, 255, onC))})`;
+  // le bouton devient l'indicateur d'onglet dans le téléphone
+  const toTab = E.qio(P(t, 23.7, .7));
+  const tabR = (i) => { const sx = S.x + (TX[i] - tabScroll(t)) * 1, sy = S.y + 66; return { x: sx, y: sy, w: TW[i], h: 44 }; };
+  const tIdx = t >= 26.79 ? 1 : t >= 25.82 ? 3 : 0;
+  // indicateur d'onglet à deux bords
+  const t0r = tabR(0), t3r = tabR(3), t1r = tabR(1);
+  const iL = t0r.x + (t3r.x - t0r.x) * spring(t - 25.82, 170, 24) + (t1r.x - t3r.x) * spring(t - 26.79, 420, 34);
+  const iR = t0r.x + t0r.w + (t3r.x + t3r.w - t0r.x - t0r.w) * spring(t - 25.82, 420, 34) + (t1r.x + t1r.w - t3r.x - t3r.w) * spring(t - 26.79, 170, 24);
+  const kx = M(L, iL, toTab), kw = M(Rr - L, iR - iL, toTab), ky = M(TG.y - 48, S.y + 66, toTab), kh = M(96, 44, toTab);
+  box(knob, kx, ky, kw, kh); knob.style.borderRadius = kh / 2 + 'px';
+  knob.style.opacity = 1 - C((t - 28.3) / .2);
+  knobLab.textContent = TABS[tIdx]; knobLab.style.opacity = C((toTab - .6) / .3);
+  vis(knob, kOn || (t >= 24.4 && t < 28.6));
+  lTh.style.left = (TG.x - TG.w / 2 + 10) + 'px'; lTh.style.top = (TG.y - 26) + 'px';
+  lPr.style.left = (TG.x + 10) + 'px'; lPr.style.top = (TG.y - 26) + 'px';
+  const lo = C((t - 20.9) / .25) * (1 - C((t - 23.5) / .2));
+  lTh.style.opacity = lo; lPr.style.opacity = lo;
+  lTh.style.color = t < flip ? INK : '#9a9a96'; lPr.style.color = t < flip ? '#9a9a96' : '#fff';
+
+  /* F · classe */
+  vis(clsV, ph2 && t < 28.7);
+  tabsRow.style.transform = `translateX(${-tabScroll(t)}px)`;
+  tabsRow.style.opacity = C((t - 24.0) / .25);
+  tabL.forEach((e, i) => { e.style.color = i === tIdx && t >= 24.3 ? '#fff' : INK; e.style.zIndex = 3; });
+  const lay = (e, a, b2) => { const o = C((t - a) / .25) * (1 - C((t - b2) / .15)); vis(e, o > .01); e.style.opacity = o; e.firstChild && (e.style.transform = `translateY(${(1 - E.o3(P(t, a, .4))) * 20}px)`); };
+  lay(vClass, 24.05, 25.75); lay(vRes, 25.9, 26.72); lay(vCom, 26.86, 28.5);
+  lRows.forEach((r, i) => { const done = i < 2 || (i === 2 && t >= 24.79); const bx = r.querySelector('.bx'); bx.style.background = done ? BLUE : 'transparent'; bx.style.boxShadow = done ? 'none' : 'inset 0 0 0 2px #cfcfca'; bx.innerHTML = done ? CK('#fff', 14) : ''; r.style.background = i === 2 ? '#eef7ff' : 'transparent'; });
+  lCount.textContent = `${t >= 24.79 ? 3 : 2} / 4 leçons terminées`;
+
+  /* G · fiche produit + clic */
+  lay(prodV, 28.55, 99); vis(prodV, ph2 && t >= 28.5);
+  pRows.forEach((r, i) => { const t0 = [28.62, 30.85, 32.29][i]; const p = spring(t - t0, 260, 24); vis(r, t >= t0); r.style.transform = `translateX(${(1 - p) * -30}px)`; r.style.opacity = C(p * 1.5); });
+  const click = 30.85; const bp = t >= click && t < click + .2 ? 1 - .05 * Math.sin(Math.PI * (t - click) / .2) : 1;
+  buy.style.transform = `scale(${bp})`;
+  vis(buyA, t < click + .05); vis(buyB, t >= 32.29); buyB.style.transform = `translateY(${(1 - E.o4(P(t, 32.29, .35))) * 30}px)`;
+  dots3.forEach((d, i) => { vis(d, t >= click + .05 && t < 32.29); d.style.transform = `translateY(${-5 * Math.max(0, Math.sin((t - click) * 12 - i * .9))}px)`; });
+  vis(buy, t < 33.45);
+  // curseur
+  const CUR = [[29.6, S.x + 520, S.y + 1000], [30.75, BTNW.x + 40, BTNW.y + 6], [31.6, BTNW.x + 40, BTNW.y + 6], [32.6, S.x + 560, S.y + 1060]];
+  let ci = 0; while (ci < CUR.length - 2 && t >= CUR[ci + 1][0]) ci++; const [ta, xa, ya] = CUR[ci], [tb, xb, yb] = CUR[ci + 1], ce = E.io(C((t - ta) / (tb - ta)));
+  vis(cursor, t >= 29.6 && t < 32.6); const cs = t >= click && t < click + .18 ? 1 - .15 * Math.sin(Math.PI * (t - click) / .18) : 1;
+  cursor.style.left = M(xa, xb, ce) + 'px'; cursor.style.top = M(ya, yb, ce) + 'px'; cursor.style.transform = `scale(${cs / Math.max(1, K.z * .8)})`;
+
+  /* H · le bouton noir devient la page */
+  const pOn = t >= 33.45; vis(page, pOn && t < 34.6);
+  if (pOn) { const e = E.qio(P(t, 33.45, .78)); const vw = 1920 / K.z, vh = 1080 / K.z; const w = M(BUY.w, vw * 1.7, e), h = M(BUY.h, vh * 1.7, e); box(page, BTNW.x - w / 2, BTNW.y - h / 2, w, h); page.style.borderRadius = h / 2 + 'px'; }
+  const oOn = t >= 34.23; vis(over, t >= 33.45); over.style.background = oOn ? INK : 'transparent';
+  if (t >= 33.45) {
+    const [sx, sy] = toS(BTNW.x, BTNW.y);
+    const g = E.io(P(t, 33.45, .9)), fs = M(19 * K.z, 92, g);
+    oLab.style.fontSize = fs + 'px'; const lw = oLab.offsetWidth, lh = oLab.offsetHeight;
+    const out = E.i3(P(t, 34.0, .4));
+    oLab.style.left = (M(sx, 960, g) - lw / 2 - out * 1700) + 'px'; oLab.style.top = (M(sy, 540, g) - lh / 2) + 'px'; vis(oLab, t < 34.45);
+    [O1, O2].forEach((O) => O.ws.forEach((w) => { const p = E.o4(P(t, w.t - .05, .5)), o = E.i3(P(t, 36.62, .35)); w.s.style.transform = `translateY(${(1 - p) * 140 - o * 140}%)`; }));
+    vis(O1.d, t >= 34.2); vis(O2.d, t >= 35.4);
+    // point : naît du dernier mot puis devient le cercle du logo
+    const r2 = O2.ws[O2.ws.length - 1].s.getBoundingClientRect();
+    const per = PER;
+    const lg = { x: 960 - LG.w / 2 + LG.h / 2, y: 520 };
+    let o;
+    if (t < 36.37) o = null;
+    else if (t < 36.93) o = { x: per.x, y: per.y, d: 26 * (1 + .25 * Math.exp(-(t - 36.37) / .07)) };
+    else { const p = E.qio(P(t, 36.93, .6)); o = { x: M(per.x, lg.x, p), y: M(per.y, lg.y, p) - Math.sin(Math.PI * p) * 120, d: M(26, LG.h, p) }; }
+    vis(oDot, !!o && t < 37.6); if (o) box(oDot, o.x - o.d / 2, o.y - o.d / 2, o.d, o.d);
+    const w2 = E.qio(P(t, 37.55, .55)); vis(oLogo, t >= 37.55);
+    oLogo.style.left = (960 - LG.w / 2) + 'px'; oLogo.style.top = (520 - LG.h / 2) + 'px';
+    oLogo.style.clipPath = `inset(0 ${(100 - ico) * (1 - w2)}% 0 0)`;
+    vis(oAbove, t >= 37.1); rise(oAbove, t, 37.1); vis(oBelow, t >= 37.65); rise(oBelow, t, 37.65, .55);
+    over.style.transform = `scale(${1 + .03 * E.io(P(t, 34.3, DUR - 34.3))})`;
+  }
+}
+function tabScroll(t) { return 140 * spring(t - 25.7, 200, 28) - 140 * spring(t - 26.7, 200, 28); }
+let PER = { x: 0, y: 0 };
+window.seek = seek;
+window.render = (t) => { seek(t); return new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); };
+window.ready = (async () => {
+  await document.fonts.load('500 40px U'); await document.fonts.load('600 40px U'); await document.fonts.ready;
+  await Promise.all([...document.images].map((i) => (i.complete ? i.decode().catch(() => {}) : new Promise((r) => { i.onload = () => i.decode().then(r, r); i.onerror = r; }))));
+  O2.ws[O2.ws.length - 1].s.textContent = 'revenus';
+  over.style.visibility = 'visible'; const r = O2.ws[O2.ws.length - 1].s.getBoundingClientRect(); PER = { x: r.right + 16, y: r.bottom - 34 }; over.style.visibility = 'hidden';
+  seek(0); return true;
+})();
+if (location.hash === '#play') { let t = 0, play = true, last = performance.now(); const tick = (n) => { if (play) t = (t + (n - last) / 1000) % DUR; last = n; seek(t); requestAnimationFrame(tick); }; addEventListener('keydown', (e) => { if (e.code === 'Space') play = !play; if (e.code === 'ArrowRight') t += 1 / 60; if (e.code === 'ArrowLeft') t -= 1 / 60; if (e.code === 'KeyR') t = 0; }); requestAnimationFrame(tick); }
+</script></body></html>

@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<style>
+@font-face { font-family: HB; src: local("HelveticaNeue-Bold"), local("Helvetica Neue Bold"); }
+@font-face { font-family: HCB; src: local("HelveticaNeue-CondensedBlack"), local("Helvetica Neue Condensed Black"); }
+:root { --red: #ff2b2b; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 1080px; height: 1920px; overflow: hidden; background: #000; }
+#stage { position: absolute; inset: 0; overflow: hidden; }
+.cam { position: absolute; inset: 0; transform-origin: 540px 860px; }
+.cam img { position: absolute; left: 0; top: 0; width: 1080px; height: 1920px; display: block; }
+#dim { position: absolute; inset: 0; background: radial-gradient(70% 55% at 50% 45%, rgba(8,6,6,.55), rgba(8,6,6,.9)); }
+#white { position: absolute; left: 0; top: 0; width: 1080px; height: 1920px; opacity: 0; filter: drop-shadow(0 0 26px rgba(255,255,255,.85)); }
+#behind, #front { position: absolute; inset: 0; pointer-events: none; }
+.hero { position: absolute; left: 0; right: 0; top: 375px; text-align: center; font-family: HCB, sans-serif; color: var(--red);
+  line-height: .9; letter-spacing: -.01em; white-space: nowrap; opacity: 0;
+  text-shadow: 0 0 30px rgba(255,40,40,.75), 0 0 80px rgba(255,30,30,.45); }
+.grp { position: absolute; left: 60px; right: 60px; top: 190px; text-align: center; font-family: HB, sans-serif; font-size: 90px; color: #fff;
+  letter-spacing: -.02em; line-height: 1; display: none;
+  text-shadow: 0 0 18px rgba(255,255,255,.45), 0 4px 18px rgba(0,0,0,.55); }
+.grp .sw { display: inline-block; margin: 0 .12em; opacity: 0; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div class="cam" id="camA"><img id="bg" alt="" /><div id="dim"></div></div>
+  <div id="behind"></div>
+  <div class="cam" id="camB"><img id="fg" alt="" /><canvas id="white" width="1080" height="1920"></canvas></div>
+  <div id="front"></div>
+</div>
+<script src="groups.js"></script>
+<script>
+const G = window.GROUPS, CUTS = window.CUTS, FPS = 30000 / 1001, NBG = 2562;
+const $ = (s) => document.querySelector(s);
+const clamp = (x) => Math.min(1, Math.max(0, x));
+const eOut = (x) => 1 - Math.pow(1 - clamp(x), 3);
+const eInOut = (x) => { x = clamp(x); return x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
+
+// groupes de mots (devant)
+const wg = G.filter((g) => g.words.length);
+$("#front").innerHTML = wg.map((g) => `<div class="grp">${g.words.map((w) => `<span class="sw">${w.t}</span>`).join("")}</div>`).join("");
+const grpEls = [...document.querySelectorAll(".grp")];
+// grands mots (derrière)
+const heroes = G.filter((g) => g.hero).map((g) => g.hero);
+heroes.forEach((h, i) => { h.end = Math.min(h.s + 1.6, i + 1 < heroes.length ? heroes[i + 1].s - 0.15 : h.s + 1.6); });
+$("#behind").innerHTML = heroes.map((h) => `<div class="hero"><span>${h.t}</span></div>`).join("");
+const heroEls = [...document.querySelectorAll(".hero")];
+let fitted = false;
+const fit = () => heroEls.forEach((el) => { let fs = 340; el.style.fontSize = fs + "px"; while (el.firstChild.offsetWidth > 1000 && fs > 120) { fs -= 4; el.style.fontSize = fs + "px"; } });
+// flashs de silhouette blanche
+const FLASH = ["SURVEILLÉ", "TÉLÉPHONE", "WECHAT", "380", "ABONNE-TOI"].map((t) => heroes.find((h) => h.t === t).s);
+
+function camAt(t) {
+  // niveau de base qui alterne à chaque coupe (cache les sauts d'image)
+  let k = CUTS.filter((c) => t >= c).length;
+  let s = [1.0, 1.1, 1.04, 1.13][k % 4], y = 0;
+  // ouverture : léger zoom arrière
+  s *= 1 + 0.08 * (1 - eOut(t / 1.2));
+  // impact sur chaque grand mot
+  for (const h of heroes) {
+    const d = t - h.s;
+    if (d >= -0.05 && d < 1.6) s *= 1 + 0.07 * (d < 0.22 ? eOut((d + 0.05) / 0.27) : 1 - eInOut((d - 0.22) / 1.3));
+  }
+  return { s, y };
+}
+function render(t) {
+  if (!fitted) { fit(); fitted = true; }
+  const c = camAt(t), tr = `scale(${c.s.toFixed(4)})`;
+  $("#camA").style.transform = tr; $("#camB").style.transform = tr;
+  // assombrissement du décor (plus fort sous un grand mot)
+  let dim = 0.62;
+  for (const h of heroes) { const d = t - h.s; if (d > -0.1 && d < h.end - h.s + 0.3) dim = Math.max(dim, 0.62 + 0.25 * (d < 0.15 ? clamp((d + 0.1) / 0.25) : 1 - clamp((d - (h.end - h.s)) / 0.3))); }
+  if (t < 0.6) dim = Math.max(dim, 0.95 - 0.33 * eOut(t / 0.6));
+  $("#dim").style.opacity = dim;
+  // silhouette blanche
+  let wh = t < 0.5 ? 1 - eOut((t - 0.12) / 0.38) * (t > 0.12 ? 1 : 0) : 0;
+  for (const f of FLASH) { const d = t - f; if (d >= 0 && d < 0.4) wh = Math.max(wh, 0.9 * (1 - eOut(d / 0.4))); }
+  $("#white").style.opacity = wh.toFixed(3);
+  // grands mots
+  heroes.forEach((h, i) => {
+    const el = heroEls[i], d = t - h.s, out = t - h.end;
+    if (d < -0.02 || out > 0.3) { el.style.opacity = 0; return; }
+    const pin = eOut(d / 0.35), pout = clamp(out / 0.3);
+    el.style.opacity = (pin * (1 - pout)).toFixed(3);
+    el.style.transform = `scale(${(1.25 - 0.25 * pin + 0.06 * eOut((d - 0.35) / 1.4) + 0.1 * pout).toFixed(4)})`;
+    el.style.filter = `blur(${((1 - pin) * 14 + pout * 10).toFixed(1)}px)`;
+  });
+  // petits sous-titres : le groupe en cours reste jusqu'au suivant
+  wg.forEach((g, i) => {
+    const next = i + 1 < wg.length ? wg[i + 1].s : 1e9;
+    const on = t >= g.s - 0.03 && t < Math.min(next - 0.03, g.e + 0.9);
+    const el = grpEls[i];
+    el.style.display = on ? "block" : "none";
+    if (!on) return;
+    [...el.children].forEach((sp, j) => {
+      const p = eOut((t - g.words[j].s + 0.03) / 0.22);
+      sp.style.opacity = p.toFixed(3);
+      sp.style.transform = `translateY(${((1 - p) * 26).toFixed(1)}px) scale(${(0.9 + 0.1 * p).toFixed(3)})`;
+      sp.style.filter = `blur(${((1 - p) * 8).toFixed(1)}px)`;
+    });
+  });
+  // images
+  const n = Math.min(NBG, Math.floor(t * FPS + 1e-6) + 1), name = `f${String(n).padStart(5, "0")}`;
+  const P = [];
+  const set = (img, src) => { if (img.getAttribute("src") !== src) { img.setAttribute("src", src); P.push(img.decode().catch(() => {})); } };
+  set($("#bg"), `bg/${name}.jpg`); set($("#fg"), `fg/${name}.png`);
+  return Promise.all(P).then(() => { if (wh > 0.001) { const c = $("#white").getContext("2d"); c.globalCompositeOperation = "source-over"; c.clearRect(0, 0, 1080, 1920); c.drawImage($("#fg"), 0, 0, 1080, 1920); c.globalCompositeOperation = "source-in"; c.fillStyle = "#fff"; c.fillRect(0, 0, 1080, 1920); } }).then(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+}
+window.render = render;
+window.DUR = NBG / FPS;
+window.ready = document.fonts.ready;
+</script>
+</body>
+</html>

@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><title>MaMarque launch</title>
+<style>
+@font-face{font-family:G;src:url(fonts/Urbanist-Medium.ttf);font-weight:100 900}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1920px;height:1080px;overflow:hidden;background:#f5f5f2;font-family:G;color:#0e0e10}
+#stage{position:absolute;inset:0;overflow:hidden;background:#f5f5f2}
+#cam{position:absolute;left:0;top:0;width:1920px;height:1080px;transform-origin:0 0}
+.a{position:absolute}
+.line{overflow:hidden;white-space:pre}
+.line>span{display:inline-block}
+.card{position:absolute;width:330px;height:440px;border-radius:28px;background:#0e0e10;overflow:hidden;color:#fff}
+.card img{width:330px;height:206px;object-fit:cover;display:block}
+#over{position:absolute;inset:0;background:#0e0e10;z-index:70;visibility:hidden;overflow:hidden;color:#fff}
+.big{position:absolute;left:0;right:0;text-align:center;font:600 92px G;letter-spacing:-.035em;white-space:nowrap}
+.wm{display:inline-block;overflow:hidden;vertical-align:top;padding:0 .03em .12em;margin-bottom:-.12em}
+.wm>span{display:inline-block}
+</style></head><body>
+<div id="stage">
+  <div id="cam"></div>
+  <div id="over"></div>
+</div>
+<script>
+/* ---------- constantes (déclarées avant le premier seek) ---------- */
+const DUR = 15.3; window.DUR = DUR;
+const BPM = 130, B = 60 / BPM, bt = (n) => n * B;
+const C = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const M = (a, b, p) => a + (b - a) * p;
+const P = (t, a, d) => C((t - a) / d);
+const E = {
+  io: (x) => (x < .5 ? 4 * x * x * x : 1 - (-2 * x + 2) ** 3 / 2),
+  o3: (x) => 1 - (1 - x) ** 3, o4: (x) => 1 - (1 - x) ** 4, i3: (x) => x * x * x,
+  qio: (x) => (x < .5 ? 8 * x ** 4 : 1 - (-2 * x + 2) ** 4 / 2),
+  xo: (x) => (x >= 1 ? 1 : 1 - 2 ** (-10 * x)),
+};
+// ressort : réponse indicielle fermée
+function spring(t, k = 170, d = 26) {
+  if (t <= 0) return 0; const w = Math.sqrt(k), z = d / (2 * w);
+  if (z >= 1) return 1 - Math.exp(-w * t) * (1 + w * t);
+  const wd = w * Math.sqrt(1 - z * z); return 1 - Math.exp(-z * w * t) * (Math.cos(wd * t) + (z * w / wd) * Math.sin(wd * t));
+}
+function mulberry32(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function el(tag, cls, parent, html = '', style = '') { const e = document.createElement(tag); if (cls) e.className = cls; if (html) e.innerHTML = html; if (style) e.style.cssText = style; parent.appendChild(e); return e; }
+const box = (e, x, y, w, h) => { e.style.left = x + 'px'; e.style.top = y + 'px'; e.style.width = w + 'px'; e.style.height = h + 'px'; };
+const vis = (e, on) => { e.style.visibility = on ? 'visible' : 'hidden'; };
+const LIME = '#00A1FF', ORANGE = '#ff6a2a', BLUE = '#00A1FF', INK = '#0e0e10';
+const cam = document.getElementById('cam'), over = document.getElementById('over');
+
+/* ---------- téléphone (monde) ---------- */
+const S = { x: 746, y: 90, w: 428, h: 900 };
+const phone = el('div', 'a', cam, '', `left:${S.x - 11}px;top:${S.y - 11}px;width:${S.w + 22}px;height:${S.h + 22}px;border-radius:66px;background:${INK};z-index:10`);
+const scr = el('div', 'a', cam, '', `left:${S.x}px;top:${S.y}px;width:${S.w}px;height:${S.h}px;border-radius:55px;background:#fff;overflow:hidden;z-index:11`);
+el('div', 'a', scr, '9:41', 'left:38px;top:16px;font:600 17px G');
+el('div', 'a', scr, `<svg width="74" height="14" viewBox="0 0 74 14"><rect x="0" y="9" width="3.5" height="5" rx="1" fill="#0e0e10"/><rect x="5.5" y="6.5" width="3.5" height="7.5" rx="1" fill="#0e0e10"/><rect x="11" y="4" width="3.5" height="10" rx="1" fill="#0e0e10"/><rect x="16.5" y="1" width="3.5" height="13" rx="1" fill="#0e0e10"/><path d="M31 5.5a10 10 0 0 1 14 0M34 8.5a6 6 0 0 1 8 0M37 11.5a2 2 0 0 1 2 0" stroke="#0e0e10" stroke-width="2" fill="none" stroke-linecap="round"/><rect x="50" y="1.5" width="21" height="11" rx="3" stroke="#0e0e10" stroke-width="1.4" fill="none"/><rect x="52" y="3.5" width="15" height="7" rx="1.6" fill="#0e0e10"/></svg>`, 'right:30px;top:19px');
+el('div', 'a', scr, '', 'left:155px;top:11px;width:118px;height:34px;border-radius:17px;background:#0e0e10');
+el('div', 'a', scr, 'Nouvelle discussion', 'left:0;right:0;top:68px;text-align:center;font:600 17px G');
+el('div', 'a', scr, '', 'left:0;right:0;top:110px;height:1px;background:#eeeeea');
+
+/* composer */
+const CMP = { x: 16, y: 772, w: 396, h: 112 };
+const glow = el('div', 'a', scr, '', `left:${CMP.x - 14}px;top:${CMP.y - 14}px;width:${CMP.w + 28}px;height:${CMP.h + 28}px;border-radius:38px;filter:blur(16px);opacity:.95`);
+const composer = el('div', 'a', scr, '', `left:${CMP.x}px;top:${CMP.y}px;width:${CMP.w}px;height:${CMP.h}px;border-radius:26px;background:#fff;box-shadow:0 0 0 1px rgba(14,14,16,.08);overflow:hidden`);
+const ripple = el('div', 'a', composer, '', `border-radius:50%;background:${LIME}`);
+const LINES = ['Je passe des heures en ligne,', 'je veux apprendre une compétence', 'qui me rapporte vraiment'];
+const typed = LINES.map((s, i) => el('div', 'a', composer, '', `left:20px;top:${14 + i * 26}px;font:500 17px/24px G;white-space:pre`));
+const caret = el('div', 'a', composer, '', `width:2px;height:20px;background:${BLUE};top:16px`);
+const placeholder = el('div', 'a', composer, 'Écris ton message…', 'left:20px;top:16px;font:500 17px/24px G;color:#a3a3a0');
+const send2 = el('div', 'a', composer, `<svg width="20" height="20" viewBox="0 0 24 24"><path d="M12 19V5M5.5 11.5L12 5l6.5 6.5" stroke="#fff" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>`, `left:340px;top:60px;width:44px;height:44px;border-radius:22px;background:${BLUE};display:flex;align-items:center;justify-content:center`);
+// frappe : rythme naturel déterministe
+const rnd = mulberry32(7); const KEYS = []; { let t = .2; LINES.forEach((ln, li) => { for (let i = 0; i < ln.length; i++) { KEYS.push({ li, i: i + 1, t }); const ch = ln[i]; t += .016 + rnd() * .017 + (ch === ' ' ? .008 : 0) + (ch === ',' ? .06 : 0); } t += .07; }); }
+
+/* bulle utilisateur (forme partagée : composer -> bulle) */
+const BUB = { x: 112, y: 130, w: 300, h: 104 };
+const msg = el('div', 'a', scr, '', `background:${LIME};color:#fff;overflow:hidden;z-index:3`);
+const msgT = LINES.map((s, i) => el('div', 'a', msg, s, `left:18px;top:${16 + i * 24}px;font:500 17px/24px G;white-space:pre`));
+
+/* bouton envoyer -> wok orange */
+const sendBtn = el('div', 'a', scr, '', 'z-index:4;display:flex;align-items:center;justify-content:center');
+const sendIco = el('div', 'a', sendBtn, `<svg width="20" height="20" viewBox="0 0 24 24"><path d="M12 19V5M5.5 11.5L12 5l6.5 6.5" stroke="#fff" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>`, 'left:12px;top:12px;width:20px;height:20px');
+const WOK = { x: 44, y: 300, w: 140, h: 70 };
+const handle = el('div', 'a', scr, '', `left:${WOK.x + WOK.w - 6}px;top:${WOK.y + 4}px;width:86px;height:7px;border-radius:4px;background:${ORANGE};transform-origin:0 50%;z-index:4`);
+const TOK = ['#ff7eb6', '#ffd23f', '#38d6ff', '#38d6ff', '#a78bfa', '#ff9a3c'];
+const GLY = ['<path d="M12 4l2 6 6 2-6 2-2 6-2-6-6-2 6-2z" fill="#fff"/>', '<path d="M8 8l-4 4 4 4M16 8l4 4-4 4" stroke="#fff" stroke-width="2.6" fill="none" stroke-linecap="round"/>', '<path d="M9 7.5v9l7.5-4.5z" fill="#0e0e10"/>', '<path d="M4 18l5-6 4 3 7-8" stroke="#fff" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>', '<path d="M5 19l3-1 10-10-2-2L6 16z" fill="#fff"/>', '<rect x="5" y="5" width="6" height="6" rx="1.5" fill="#fff"/><rect x="13" y="13" width="6" height="6" rx="1.5" fill="#fff"/>'];
+const toks = TOK.map((c, i) => el('div', 'a', scr, `<svg width="22" height="22" viewBox="0 0 24 24">${GLY[i]}</svg>`, `width:36px;height:36px;border-radius:11px;background:${c};display:flex;align-items:center;justify-content:center;z-index:3`));
+const TOSS = [[8, [0, 1]], [9, [2, 3]], [10, [4, 5]], [11, [0, 1, 2, 3, 4, 5]]];
+const shim = el('div', 'a line', scr, '<span>Je cherche la formation idéale…</span>', `left:${WOK.x}px;top:${WOK.y + 104}px;font:500 18px G;z-index:3`);
+const shimS = shim.firstChild;
+shimS.style.cssText = 'background:linear-gradient(90deg,#9a9a96 0%,#9a9a96 40%,#0e0e10 50%,#9a9a96 60%,#9a9a96 100%);background-size:300% 100%;-webkit-background-clip:text;background-clip:text;color:transparent';
+
+/* réponse dans le chat */
+const SLOT = { x: 24, y: 250, s: .55 };
+const bot1 = el('div', 'a', scr, '', 'left:24px;top:505px;width:310px;height:94px;border-radius:20px 20px 20px 6px;background:#f0f0ec;transform-origin:0 100%;z-index:3');
+const B1 = ['Trouvé ! Web Builder pro :', 'des sites web pros sans', 'écrire une ligne de code.'];
+const b1l = B1.map((s, i) => el('div', 'a line', bot1, `<span>${s}</span>`, `left:16px;top:${14 + i * 22}px;font:500 16px/22px G`));
+const bot2 = el('div', 'a', scr, '', 'left:24px;top:611px;width:262px;height:50px;border-radius:20px 20px 20px 6px;background:#f0f0ec;transform-origin:0 100%;z-index:3');
+const b2l = el('div', 'a line', bot2, '<span>Tu veux commencer maintenant ?</span>', 'left:16px;top:14px;font:500 16px/22px G');
+const PILL = { x: 24, y: 676, w: 150, h: 46 };
+const pillA = el('div', 'a', scr, '', `left:${PILL.x}px;top:${PILL.y}px;width:${PILL.w}px;height:${PILL.h}px;border-radius:23px;background:${INK};color:#fff;overflow:hidden;z-index:3`);
+const pillLab = el('div', 'a', pillA, 'Commencer', 'left:0;right:0;top:12px;text-align:center;font:600 16px/22px G');
+const pillOk = el('div', 'a', pillA, '✓ C\'est parti', 'left:0;right:0;top:12px;text-align:center;font:600 16px/22px G');
+const dots3 = [0, 1, 2].map((i) => el('div', 'a', pillA, '', `left:${57 + i * 14}px;top:20px;width:8px;height:8px;border-radius:4px;background:#fff`));
+const pillB = el('div', 'a', scr, 'Autres formations', `left:186px;top:${PILL.y}px;width:178px;height:46px;border-radius:23px;box-shadow:inset 0 0 0 1.5px ${INK};text-align:center;font:600 16px/46px G;z-index:3`);
+
+/* ---------- inondation citron (monde) ---------- */
+const flood = el('div', 'a', cam, '', `background:${LIME};overflow:hidden;z-index:30`);
+const floodWords = el('div', 'a', flood, LINES.map((s, i) => `<div style="position:absolute;left:18px;top:${16 + i * 24}px;white-space:pre">${s}</div>`).join(''), 'font:500 17px/24px G;width:300px;height:104px;color:#fff');
+
+/* ---------- cartes formations (monde) ---------- */
+const DATA = [['c_minia', 'Ai Minia Cash', 'Des miniatures YouTube percutantes avec l\'IA', '19 €'], ['c_motion', 'Motion Design Opus 5.5', 'Le montage vidéo, de façon simple', '29 €'], ['c_funnel', 'AI Funnel Mastery', 'L\'IA pour créer tes pages et trouver tes clients', '49 €'], ['c_web', 'Web Builder pro', 'Des sites web pros sans une ligne de code', '39 €'], ['c_design', 'Funnel Design School', 'Des funnels de vente qui convertissent', '69 €'], ['c_prosp', 'Prospection 3.0', 'Trouver, qualifier et convertir tes clients', '19 €']];
+const MATCH = 3;
+const cards = DATA.map(([im, n, d, p], i) => el('div', 'card', cam, `<img src="img/${im}.jpg"><div style="padding:20px 22px"><div style="font:600 25px G;letter-spacing:-.02em;white-space:nowrap">${n}</div><div style="font:400 15px/21px G;color:#9a9aa2;margin-top:8px;height:42px">${d}</div><div style="display:flex;align-items:center;justify-content:space-between;margin-top:30px"><span style="font:700 30px G;color:${LIME}">${p}</span><span style="font:500 14px G;color:#d6d6d2;padding:7px 12px;border-radius:999px;box-shadow:inset 0 0 0 1px #3a3a3e">Accès à vie</span></div></div>`, `z-index:${40 + (i === MATCH ? 5 : 0)}`));
+const best = el('div', 'a', cards[MATCH], 'Meilleur choix', `left:16px;top:16px;padding:9px 16px;border-radius:999px;background:${LIME};color:#fff;font:600 16px G;transform-origin:0 50%`);
+
+/* curseur (monde) */
+const cursor = el('div', 'a', cam, `<svg width="34" height="34" viewBox="0 0 24 24"><path d="M4 2.5l15.5 9.2-6.9 1.4 3.9 7.3-3 1.6-3.9-7.4L4.9 19z" fill="#fff" stroke="#0e0e10" stroke-width="1.5" stroke-linejoin="round"/></svg>`, 'z-index:90;transform-origin:0 0;filter:drop-shadow(0 4px 6px rgba(0,0,0,.25))');
+
+/* bouton noir qui devient la page (monde) */
+const page = el('div', 'a', cam, '', `background:${INK};z-index:60;visibility:hidden`);
+
+/* ---------- fin (écran) ---------- */
+const lab = el('div', 'a', over, '✓ C\'est parti', 'left:0;top:0;font:600 16px G;white-space:nowrap;transform-origin:50% 50%');
+function words(txt, y, t0, step) {
+  const d = el('div', 'big', over, '', `top:${y}px`); const ws = [];
+  txt.split(' ').forEach((w, i, a) => { const m = el('span', 'wm', d); ws.push({ s: el('span', '', m, w), t: t0 + i * step }); if (i < a.length - 1) m.insertAdjacentHTML('afterend', ' '); });
+  return { d, ws };
+}
+const L1 = words('Tu voulais une compétence.', 330, bt(23.4), B * .5);
+const L2 = words('Elle commence maintenant.', 450, bt(25.4), B * .5);
+L2.ws.forEach((w) => (w.s.style.color = LIME));
+const routeSvg = el('div', 'a', over, `<svg width="1920" height="1080" viewBox="0 0 1920 1080"><path id="rt" d="M360 840 C 620 700, 820 960, 1060 820 S 1420 700, 1560 760" fill="none" stroke="#3a3a3e" stroke-width="6" stroke-linecap="round" stroke-dasharray="2 18"/><path id="rt2" d="M360 840 C 620 700, 820 960, 1060 820 S 1420 700, 1560 760" fill="none" stroke="${LIME}" stroke-width="6" stroke-linecap="round"/></svg>`, 'left:0;top:0');
+const rt = routeSvg.querySelector('#rt'), rt2 = routeSvg.querySelector('#rt2');
+const courier = el('div', 'a', over, '', `width:30px;height:30px;border-radius:15px;background:${LIME};box-shadow:0 0 0 8px rgba(0,161,255,.22)`);
+const pin = el('div', 'a', over, `<svg width="64" height="84" viewBox="0 0 64 84"><path d="M32 82C32 82 4 50 4 30a28 28 0 0 1 56 0c0 20-28 52-28 52z" fill="${ORANGE}"/><rect x="21" y="19" width="22" height="22" rx="7" fill="#0e0e10"/></svg>`, 'width:64px;height:84px;transform-origin:32px 82px');
+const mark = el('img', 'a', over, '', 'width:110px;height:110px;transform-origin:50% 50%'); mark.src = 'img/favicon.svg';
+const wordmark = el('img', 'a', over, '', 'height:110px;top:485px'); wordmark.src = 'img/logo-blanc.svg';
+const above = el('div', 'a line', over, '<span>Apprends avec</span>', 'left:0;right:0;top:405px;text-align:center;font:500 34px G;color:#9a9a96');
+const below = el('div', 'a line', over, '<span>mamarque.site</span>', 'left:0;right:0;top:618px;text-align:center;font:500 78px G;color:#fff;letter-spacing:-.02em');
+
+/* ---------- caméra : [t, zoom, x, y] ---------- */
+const BTN = { x: S.x + PILL.x + PILL.w / 2, y: S.y + PILL.y + PILL.h / 2 };
+const CAM = [[0, 2.35, 960, S.y + CMP.y + CMP.h / 2], [bt(6), 3.0, 960, S.y + CMP.y + CMP.h / 2], [bt(8.6), 1.1, 960, 540], [bt(12), 1.15, 960, 540], [bt(16), 1.2, 960, 540], [bt(21), 1.42, 960, 560], [bt(24), 3.4, BTN.x, BTN.y], [DUR, 3.4, BTN.x, BTN.y]];
+function camAt(t) {
+  let i = 0; while (i < CAM.length - 2 && t >= CAM[i + 1][0]) i++;
+  const [a, z0, x0, y0] = CAM[i], [b, z1, x1, y1] = CAM[i + 1], e = E.io(C((t - a) / (b - a)));
+  return { z: Math.exp(M(Math.log(z0), Math.log(z1), e)), x: M(x0, x1, e), y: M(y0, y1, e) };
+}
+
+/* ================= SEEK ================= */
+function seek(t) {
+  const K = camAt(t);
+  cam.style.transform = `translate(960px,540px) scale(${K.z}) translate(${-K.x}px,${-K.y}px)`;
+  const toScreen = (x, y) => [960 + (x - K.x) * K.z, 540 + (y - K.y) * K.z];
+
+  /* lueur iridescente */
+  glow.style.background = `conic-gradient(from ${t * 140}deg,#ff7eb6,#ff9a3c,#ffd23f,#38d6ff,#a78bfa,#ff7eb6)`;
+  const gOn = t < bt(12) + .4; vis(glow, gOn);
+  glow.style.transform = `scale(${1 + .015 * Math.sin(t * 5)})`;
+
+  /* frappe */
+  const sent = t >= bt(6) + .28;
+  let lastLi = 0, lastI = 0;
+  LINES.forEach((ln, li) => { let n = 0; KEYS.forEach((k) => { if (k.li === li && t >= k.t) n = k.i; }); typed[li].textContent = ln.slice(0, n); if (n > 0) { lastLi = li; lastI = n; } });
+  typed.forEach((e) => vis(e, !sent));
+  const cw = typed[lastLi].getBoundingClientRect().width / (K.z || 1);
+  caret.style.left = (20 + typed[lastLi].offsetWidth + 1) + 'px'; caret.style.top = (16 + lastLi * 26) + 'px';
+  vis(caret, !sent && t > .1 && (Math.floor(t * 3.2) % 2 === 0 || t < KEYS[KEYS.length - 1].t + .1));
+  vis(placeholder, sent && t > bt(6) + .7 || t < KEYS[0].t);
+
+  /* ondulation citron puis bulle partagée */
+  const rp = E.o3(P(t, bt(6), .28));
+  vis(ripple, t >= bt(6) && !sent);
+  const r = rp * 420; box(ripple, 362 - r, 82 - r, 2 * r, 2 * r);
+  vis(msg, sent);
+  if (sent) {
+    const m = E.io(P(t, bt(6) + .28, .5));
+    const x = M(CMP.x, BUB.x, m), y = M(CMP.y, BUB.y, m), w = M(CMP.w, BUB.w, m), h = M(CMP.h, BUB.h, m);
+    box(msg, x, y, w, h); msg.style.borderRadius = `${M(26, 22, m)}px ${M(26, 22, m)}px ${M(26, 6, m)}px ${M(26, 22, m)}px`;
+    msgT.forEach((e, i) => { e.style.left = M(20, 18, m) + 'px'; e.style.top = (M(14, 16, m) + i * M(26, 24, m)) + 'px'; });
+  }
+
+  /* bouton envoyer -> wok */
+  const press = t >= bt(6) ? 1 - .14 * Math.sin(Math.PI * C((t - bt(6)) / .2)) : 1;
+  const mp = E.io(P(t, bt(6.8), .55));
+  const bx = M(CMP.x + 340, WOK.x, mp), by = M(CMP.y + 60, WOK.y, mp), bw = M(44, WOK.w, mp), bh = M(44, WOK.h, mp);
+  box(sendBtn, bx, by, bw, bh);
+  const rt_ = M(22, 0, mp), rbx = M(22, WOK.w / 2, mp), rby = M(22, WOK.h, mp);
+  sendBtn.style.borderRadius = `${rt_}px ${rt_}px ${rbx}px ${rbx}px / ${rt_}px ${rt_}px ${rby}px ${rby}px`;
+  const cmix = (a, b, p) => { const h = (s) => [1, 3, 5].map((k) => parseInt(s.substr(k, 2), 16)); const A = h(a), Bc = h(b); return `rgb(${A.map((v, i) => Math.round(M(v, Bc[i], p))).join(',')})`; };
+  sendBtn.style.background = `hsl(${M(201, 380, mp) % 360},100%,${M(50, 58, mp)}%)`;
+  // basculement du wok à chaque lancer
+  let tilt = 0; TOSS.forEach(([b]) => { const d = t - bt(b); if (d >= 0) tilt += -12 * Math.exp(-d / .12) * Math.sin(Math.min(d / .22, 1) * Math.PI); });
+  sendBtn.style.transformOrigin = '50% 0'; sendBtn.style.transform = `scale(${press}) rotate(${tilt}deg)`;
+  sendIco.style.transform = `scale(${1 - E.o3(P(t, bt(6.8), .2))})`;
+  const hp = spring(t - bt(7.9), 260, 26); handle.style.transform = `scaleX(${hp}) rotate(${tilt}deg)`; vis(handle, t >= bt(7.9));
+  vis(sendBtn, t < bt(12) + .4); vis(handle, t >= bt(7.9) && t < bt(12) + .4);
+  const s2 = spring(t - bt(9), 260, 24); send2.style.transform = `scale(${s2})`;
+  // ingrédients
+  toks.forEach((k, i) => {
+    const on = t >= bt(7.9) && t < bt(12) + .4; vis(k, on); if (!on) return;
+    const pop = spring(t - (bt(7.95) + i * .03), 260, 22);
+    let dy = 0, dx = 0, rot = 0;
+    TOSS.forEach(([b, ids]) => { if (!ids.includes(i)) return; const d = (t - bt(b)) / .42; if (d >= 0 && d <= 1) { const hgt = 70 + ((i * 37) % 60); dy = -hgt * 4 * d * (1 - d); dx = ((i % 3) - 1) * 22 * Math.sin(Math.PI * d); rot = 360 * d * (i % 2 ? 1 : -1); } });
+    box(k, WOK.x + 14 + i * 19 + dx, WOK.y - 22 + dy, 36, 36);
+    k.style.transform = `scale(${pop}) rotate(${rot}deg)`;
+  });
+  const sp = E.o4(P(t, bt(7.6), .5)); shimS.style.transform = `translateY(${(1 - sp) * 110}%)`;
+  shimS.style.backgroundPosition = `${100 - ((t * 70) % 200)}% 0`;
+  vis(shim, t >= bt(7.5) && t < bt(12) + .4);
+
+  /* inondation citron : s'étend depuis le wok, puis se resserre en bulle */
+  const fc = { x: S.x + WOK.x + WOK.w / 2, y: S.y + WOK.y + 20 };
+  const fOn = t >= bt(12) && t < bt(17.2); vis(flood, fOn);
+  if (fOn) {
+    const vw = 960 / K.z, vh = 540 / K.z;
+    const far = Math.max(...[[K.x - vw, K.y - vh], [K.x + vw, K.y - vh], [K.x - vw, K.y + vh], [K.x + vw, K.y + vh]].map(([x, y]) => Math.hypot(x - fc.x, y - fc.y))) * 1.05;
+    const R = E.o3(P(t, bt(12), .35)) * far;
+    const cp = E.qio(P(t, bt(16), bt(1.1)));
+    const bx2 = S.x + BUB.x, by2 = S.y + BUB.y;
+    const x = M(fc.x - R, bx2, cp), y = M(fc.y - R, by2, cp), w = M(2 * R, BUB.w, cp), h = M(2 * R, BUB.h, cp);
+    box(flood, x, y, w, h);
+    const rr = M(R, 22, cp); flood.style.borderRadius = cp > 0 ? `${rr}px ${rr}px ${M(R, 6, cp)}px ${rr}px` : '50%';
+    floodWords.style.left = (bx2 - x) + 'px'; floodWords.style.top = (by2 - y) + 'px';
+    const wr = E.o4(P(t, bt(16), .3)); floodWords.style.clipPath = `inset(0 0 ${(1 - wr) * 100}% 0)`; floodWords.style.transform = `translateY(${(1 - wr) * 30}px)`;
+  }
+
+  /* cartes */
+  const c = 3 * E.io(P(t, bt(13), bt(2)));
+  cards.forEach((k, i) => {
+    const on = t >= bt(12) + .04 && (i === MATCH || t < bt(17)); vis(k, on); if (!on) return;
+    const st = bt(12) + .06 + Math.abs(i - 0) * .045;
+    const b = spring(t - st, 170, 20);
+    let cx = M(960, 960 + (i - c) * 370, b), cy = 540, s = M(.25, 1, b), rot = (1 - b) * ((i * 53) % 17 - 8);
+    if (i === MATCH) {
+      const lift = spring(t - bt(15), 220, 24); cy -= 26 * lift; s *= 1 + .05 * lift;
+      const fly = spring(t - bt(16.15), 120, 22);
+      const tx = S.x + SLOT.x + 165 * SLOT.s, ty = S.y + SLOT.y + 220 * SLOT.s;
+      cx = M(cx, tx, fly); cy = M(cy, ty, fly); s = M(s, SLOT.s, fly);
+    } else {
+      const ex = E.i3(P(t, bt(16), .42)); cx += Math.sign(i - MATCH) * ex * 1500;
+    }
+    k.style.left = (cx - 165) + 'px'; k.style.top = (cy - 220) + 'px'; k.style.transform = `scale(${s}) rotate(${rot}deg)`;
+  });
+  const bp = spring(t - bt(15.1), 260, 22); best.style.transform = `scale(${bp})`;
+
+  /* réponses du chat */
+  const chatOn = t >= bt(16.5);
+  [bot1, bot2].forEach((bb, j) => { const t0 = j ? bt(18.5) : bt(17.4); const p = spring(t - t0, 260, 26); vis(bb, chatOn && t >= t0); bb.style.transform = `scale(${M(.85, 1, p)})`; });
+  b1l.forEach((l, i) => { l.firstChild.style.transform = `translateY(${(1 - E.o4(P(t, bt(17.5) + i * .07, .45))) * 110}%)`; });
+  b2l.firstChild.style.transform = `translateY(${(1 - E.o4(P(t, bt(18.6), .45))) * 110}%)`;
+  [pillA, pillB].forEach((pp, j) => { const p = spring(t - (bt(19) + j * .06), 260, 22); vis(pp, t >= bt(19)); pp.style.transform = `scale(${p})`; });
+  const click = bt(19.8);
+  const pPress = t >= click ? 1 - .08 * Math.sin(Math.PI * C((t - click) / .18)) : 1;
+  pillA.style.transform += ` scale(${pPress})`;
+  vis(pillLab, t < click + .05); vis(pillOk, t >= bt(20.7));
+  pillOk.style.transform = `translateY(${(1 - E.o4(P(t, bt(20.7), .35))) * 30}px)`;
+  dots3.forEach((d, i) => { const on = t >= click + .05 && t < bt(20.7); vis(d, on); d.style.transform = `translateY(${-6 * Math.max(0, Math.sin((t - click) * 14 - i * .9))}px)`; });
+  // le wok et le texte scintillant disparaissent sous l'inondation
+  // curseur
+  const CUR = [[bt(18.9), 1290, 1060], [bt(19.75), BTN.x + 8, BTN.y + 4], [bt(21), BTN.x + 8, BTN.y + 4], [bt(21.7), BTN.x + 260, BTN.y + 420]];
+  let ci = 0; while (ci < CUR.length - 2 && t >= CUR[ci + 1][0]) ci++;
+  const [ta, xa, ya] = CUR[ci], [tb, xb, yb] = CUR[ci + 1], ce = E.io(C((t - ta) / (tb - ta)));
+  vis(cursor, t >= bt(18.9) && t < bt(21.7));
+  const cs = t >= click && t < click + .18 ? 1 - .15 * Math.sin(Math.PI * (t - click) / .18) : 1;
+  cursor.style.left = M(xa, xb, ce) + 'px'; cursor.style.top = M(ya, yb, ce) + 'px'; cursor.style.transform = `scale(${cs / Math.max(1, K.z * .8)})`;
+
+  /* le bouton noir devient la page (forme de pilule jusqu'aux bords) */
+  const pOn = t >= bt(21); vis(page, pOn);
+  const ge = E.qio(P(t, bt(21), .78));
+  if (pOn) {
+    const vw = 1920 / K.z, vh = 1080 / K.z;
+    const w = M(PILL.w, vw * 1.7, ge), h = M(PILL.h, vh * 1.7, ge);
+    box(page, BTN.x - w / 2, BTN.y - h / 2, w, h); page.style.borderRadius = (h / 2) + 'px';
+  }
+  vis(pillOk, t >= bt(20.7) && t < bt(21));
+  const oOn = t >= bt(21) + .78; vis(over, oOn || t >= bt(21));
+  over.style.background = oOn ? INK : 'transparent';
+  // étiquette partagée : grandit jusqu'au titre puis glisse
+  if (t >= bt(21)) {
+    const [sx, sy] = toScreen(BTN.x, BTN.y);
+    const g2 = E.io(P(t, bt(21), bt(2)));
+    const fs = M(16 * K.z, 92, g2);
+    lab.style.fontSize = fs + 'px';
+    const wv = lab.offsetWidth, hv = lab.offsetHeight;
+    const out = E.i3(P(t, bt(23), .42));
+    lab.style.left = (M(sx, 960, g2) - wv / 2 - out * 1600) + 'px'; lab.style.top = (M(sy, 540, g2) - hv / 2) + 'px';
+    vis(lab, t < bt(23) + .45);
+  } else vis(lab, false);
+  // titres mot par mot
+  const linesOut = E.i3(P(t, bt(28.6), .4));
+  [L1, L2].forEach((L) => { L.ws.forEach((w) => { const p = E.o4(P(t, w.t, .5)); w.s.style.transform = `translateY(${(1 - p) * 112 - linesOut * 112}%)`; }); vis(L.d, t >= bt(23)); });
+  // trajet du coursier
+  const len = rt.getTotalLength();
+  const rp2 = E.io(P(t, bt(25.6), bt(3)));
+  const back = E.i3(P(t, bt(28.6), .35));
+  rt2.style.strokeDasharray = `${len}`; rt2.style.strokeDashoffset = `${len * (1 - rp2)}`;
+  const rOn = t >= bt(25.4) && t < bt(28.6) + .4; vis(routeSvg, rOn);
+  const drawIn = E.o3(P(t, bt(25.4), .4)); rt.style.strokeDasharray = `2 18`; routeSvg.style.clipPath = `inset(0 ${(1 - drawIn) * 100}% 0 ${back * 100}%)`;
+  const pt = rt.getPointAtLength(len * rp2);
+  vis(courier, rOn && rp2 < 1); box(courier, pt.x - 15, pt.y - 15, 30, 30);
+  // l'épingle devient la marque
+  const end = { x: 1560, y: 760 };
+  const pinIn = spring(t - bt(25.6), 260, 22);
+  const toC = E.io(P(t, bt(28.8), .5));
+  const px = M(end.x, 960, toC), py = M(end.y, 540, toC);
+  const swap = E.io(P(t, bt(29.6), .28));
+  vis(pin, t >= bt(25.6) && swap < 1);
+  pin.style.left = (px - 32) + 'px'; pin.style.top = (py - 82 + 41 * toC) + 'px';
+  const land = rp2 >= 1 && t < bt(28.8) ? 1 + .12 * Math.exp(-(t - bt(28.6)) / .1) : 1;
+  pin.style.transform = `scale(${pinIn * (1 - swap) * land})`;
+  // logo : la marque puis le mot qui sort de derrière
+  const mk = spring(t - bt(29.6), 220, 22);
+  const slide = E.io(P(t, bt(30.3), .55));
+  const lockW = 110 * 255 / 77, left0 = 960 - 55, left1 = 960 - lockW / 2;
+  const mx = M(left0, left1, slide);
+  vis(mark, t >= bt(29.6)); box(mark, mx, 485, 110, 110); mark.style.transform = `scale(${mk})`;
+  vis(wordmark, t >= bt(30.3)); wordmark.style.left = mx + 'px';
+  wordmark.style.clipPath = `inset(0 ${(1 - slide) * 100}% 0 30%)`;
+  above.firstChild.style.transform = `translateY(${(1 - E.o4(P(t, bt(30.6), .5))) * 115}%)`;
+  below.firstChild.style.transform = `translateY(${(1 - E.o4(P(t, bt(31), .55))) * 115}%)`;
+  vis(above, t >= bt(30.5)); vis(below, t >= bt(30.9));
+  // poussée lente de la fin
+  const op = E.io(P(t, bt(22), DUR - bt(22)));
+  over.style.transform = `scale(${1 + .045 * op})`;
+}
+window.seek = seek;
+window.render = (t) => { seek(t); return new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); };
+window.ready = (async () => {
+  await document.fonts.load('500 40px G');
+  await document.fonts.ready;
+  await Promise.all([...document.images].map((i) => (i.complete ? i.decode().catch(() => {}) : new Promise((r) => { i.onload = () => i.decode().then(r, r); i.onerror = r; }))));
+  seek(0); return true;
+})();
+/* aperçu : Espace lecture/pause, ← → image par image, R relance */
+if (location.hash === '#play') {
+  let t = 0, play = true, last = performance.now();
+  const tick = (n) => { if (play) t = (t + (n - last) / 1000) % DUR; last = n; seek(t); requestAnimationFrame(tick); };
+  addEventListener('keydown', (e) => { if (e.code === 'Space') play = !play; if (e.code === 'ArrowRight') t += 1 / 60; if (e.code === 'ArrowLeft') t -= 1 / 60; if (e.code === 'KeyR') t = 0; });
+  requestAnimationFrame(tick);
+}
+</script></body></html>

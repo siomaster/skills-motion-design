@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><title>Dot film</title>
+<style>
+@font-face{font-family:UB;src:url(fonts/Urbanist-Black.ttf);font-weight:900}
+@font-face{font-family:UM;src:url(fonts/Urbanist-Medium.ttf);font-weight:500}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1920px;height:1080px;overflow:hidden;background:#F5F4F0}
+#stage{position:absolute;inset:0;overflow:hidden}
+.a{position:absolute}
+.L{position:absolute;left:0;top:0;font:900 260px/1 UB;color:#0E0E10;white-space:pre;transform-origin:0 0}
+.meas{position:absolute;left:0;top:0;white-space:pre;line-height:1;visibility:hidden}
+.mask{position:absolute;left:0;right:0;text-align:center;overflow:hidden;white-space:nowrap;line-height:1.1}
+.mask>span{display:inline-block}
+.orb{position:absolute;left:0;top:0;font:900 50px/1 UB;color:#F5F4F0;white-space:pre;transform-origin:50% 50%}
+</style></head><body>
+<div id="stage">
+  <div id="bg" class="a" style="inset:0;background:#F5F4F0"></div>
+  <canvas id="ht" class="a" width="1920" height="1080" style="left:0;top:0;transform-origin:960px 540px"></canvas>
+  <svg id="svg" class="a" width="1920" height="1080" viewBox="0 0 1920 1080" style="left:0;top:0"></svg>
+  <div id="circ" class="a" style="border-radius:50%;background:#00A1FF"></div>
+  <div id="sq" class="a" style="background:#0E0E10"></div>
+  <div id="card" class="a" style="inset:0;background:#0E0E10;transform-origin:960px 540px"></div>
+  <div id="words" class="a" style="inset:0"></div>
+  <div id="ui" class="a" style="inset:0"></div>
+  <div id="dot" class="a" style="border-radius:50%;background:#00A1FF;z-index:20"></div>
+  <svg id="cursor" class="a" width="44" height="44" viewBox="0 0 24 24" style="z-index:30;transform-origin:4px 3px"><path d="M4 2.5l15.5 9.2-6.9 1.4 3.9 7.3-3 1.6-3.9-7.4L4.9 19z" fill="#0E0E10" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg>
+</div>
+<script>
+/* ===== constantes (toutes déclarées avant le premier seek) ===== */
+const DUR = 15; window.DUR = DUR;
+const B = .5, b = (n) => n * B;
+const ACC = '#00A1FF', INK = '#0E0E10', PAPER = '#F5F4F0';
+const C = (x, a = 0, c = 1) => Math.min(c, Math.max(a, x));
+const M = (a, c, p) => a + (c - a) * p;
+const P = (t, a, d) => C((t - a) / d);
+const E = { io: (x) => (x < .5 ? 4 * x * x * x : 1 - (-2 * x + 2) ** 3 / 2), o3: (x) => 1 - (1 - x) ** 3, o4: (x) => 1 - (1 - x) ** 4, i3: (x) => x * x * x, i2: (x) => x * x,
+  xo: (x) => (x >= 1 ? 1 : 1 - 2 ** (-10 * x)), xio: (x) => (x <= 0 ? 0 : x >= 1 ? 1 : x < .5 ? 2 ** (20 * x - 10) / 2 : (2 - 2 ** (-20 * x + 10)) / 2) };
+function spring(t, k = 220, d = 26) {
+  if (t <= 0) return 0; const w = Math.sqrt(k), z = d / (2 * w);
+  if (z >= 1) return 1 - Math.exp(-w * t) * (1 + w * t);
+  const wd = w * Math.sqrt(1 - z * z); return 1 - Math.exp(-z * w * t) * (Math.cos(wd * t) + (z * w / wd) * Math.sin(wd * t));
+}
+// ressort du graphique : premier pic à 0,5 s, dépassement de 22 %
+const GZ = .434, GWN = 2 * Math.PI / Math.sqrt(1 - GZ * GZ);
+const gspring = (tau) => spring(tau, GWN * GWN, 2 * GZ * GWN);
+function el(tag, cls, parent, html = '', style = '') { const e = document.createElement(tag); if (cls) e.className = cls; if (html) e.innerHTML = html; if (style) e.style.cssText = style; parent.appendChild(e); return e; }
+const vis = (e, on) => { e.style.visibility = on ? 'visible' : 'hidden'; };
+const $ = (s) => document.getElementById(s);
+const ui = $('ui'), dot = $('dot'), circ = $('circ'), sq = $('sq'), card = $('card'), svg = $('svg'), ht = $('ht'), hctx = ht.getContext('2d'), words = $('words'), cursor = $('cursor'), bg = $('bg');
+const NS = 'http://www.w3.org/2000/svg';
+const sv = (tag, attrs) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); svg.appendChild(e); return e; };
+
+/* ===== mise en page mesurée (remplie dans ready) ===== */
+const LABEL = 'Réduire Motıon', BIG = 'Motıon', LS = 100, BS = 260;
+const LAY = { lab: [], big: [], labBase: 0, bigBase: 0, tit: { dx: 0, dy: 0, d: 0 } };
+let letters = [], track, inkTit, ROW = {}, TIT = {}, cardDotPos = {};
+const GR = { x0: 380, y0: 800, w: 1160, h: 380 }; // graphique
+const GT = 1.9; // durée du tracé
+const settle = { x: GR.x0 + GR.w, y: GR.y0 - GR.h };
+
+/* ===== scènes (éléments) ===== */
+const base = sv('line', { x1: GR.x0, y1: GR.y0, x2: GR.x0, y2: GR.y0, stroke: INK, 'stroke-width': 4, 'stroke-linecap': 'round' });
+const target = sv('line', { x1: GR.x0, y1: settle.y, x2: GR.x0, y2: settle.y, stroke: '#B9B7B0', 'stroke-width': 3, 'stroke-dasharray': '10 12' });
+const curve = sv('path', { d: '', fill: 'none', stroke: ACC, 'stroke-width': 7, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' });
+const shoot = sv('line', { x1: 0, y1: 0, x2: 0, y2: 0, stroke: INK, 'stroke-width': 4, 'stroke-linecap': 'round' });
+const echo = sv('path', { d: '', fill: 'none', stroke: ACC, 'stroke-width': 6, 'stroke-linecap': 'round', opacity: .9 });
+const call = el('div', 'a', ui, '+22 %', `left:0;top:0;font:900 120px/1 UB;color:${INK};letter-spacing:-.03em`);
+const callLab = el('div', 'a', ui, 'en plus, grâce aux ressorts', `left:0;top:0;font:500 30px/1 UM;color:#77756E`);
+// mots en orbite
+const ORB = 'RESSORTS · EASING · TYPO CINÉTIQUE · 3D · SON · ';
+const WORD_OF = []; { let w = 0; for (const ch of ORB) { WORD_OF.push(ch === '·' ? -1 : w); if (ch === '·') w++; } }
+const orb = [...ORB].map((ch) => el('div', 'orb', words, ch));
+// carte finale
+const cardL = [['MaMarque', `font:900 210px/1 UB;color:${PAPER};letter-spacing:-.035em`, 300], ['Motion Design Opus 5.5', `font:500 64px/1 UM;color:#BDBBB4`, 560], ['0 keyframe', `font:500 40px/1 UM;color:${ACC}`, 670]]
+  .map(([s, st, y]) => { const m = el('div', 'mask', card, `<span style="${st}">${s}</span>`, `top:${y}px`); return m; });
+
+/* ===== caméra du curseur ===== */
+let CUR = [];
+
+function letterState(i, t) {
+  // i : index dans LABEL ; renvoie transform
+  const isMotion = i >= 8, li = LAY.lab[i];
+  if (isMotion) {
+    const bi = LAY.big[i - 8];
+    const s0 = LS / BS, dx0 = li.x - bi.x, dy0 = li.y - bi.y;
+    // ouverture : vers le grand mot (ressort décalé)
+    const st = b(2.2) + (i - 8) * .05;
+    const p = spring(t - st, 150, 19);
+    const bend = Math.sin(Math.PI * C(p)) * (i % 2 ? 9 : -9);
+    let x = M(dx0, 0, p), y = M(dy0, 0, p) - Math.sin(Math.PI * C(p)) * 60, s = M(s0, 1, p), r = bend, show = true;
+    // sortie du grand mot (scène ressort)
+    const ex = E.i3(P(t, b(5.1) + (i - 8) * .03, .42));
+    x -= ex * 1500; r += -ex * 25;
+    // retour : réapparaît dans le libellé
+    if (t >= b(27)) { const q = spring(t - (b(28) + i * .02), 300, 34); x = dx0; y = dy0 + (1 - q) * 260; s = s0; r = (1 - q) * (i % 2 ? 30 : -30); show = t >= b(28) + i * .02; }
+    return { x: bi.x + x, y: bi.y + y, s, r, show };
+  } else {
+    // « Réduire » : se plie et tombe
+    const st = b(2) + i * .035; const p = E.i2(P(t, st, .55));
+    let x = li.x + p * (i - 4) * 40, y = li.y + p * 520, r = p * (i % 2 ? 50 : -40), show = p < 1;
+    if (t >= b(27)) { const q = spring(t - (b(28) + i * .02), 300, 34); x = li.x; y = li.y + (1 - q) * 260; r = (1 - q) * (i % 2 ? -30 : 30); show = t >= b(28) + i * .02; }
+    return { x, y, s: LS / BS, r, show };
+  }
+}
+
+function dotAt(t) {
+  const off = ROW.knobOff, on = ROW.knobOn;
+  if (t < b(2)) { const k = spring(t - b(1) - .02, 300, 22); return { x: M(off.x, on.x, k), y: off.y, d: 82 }; }
+  if (t < b(4)) { const p = E.io(P(t, b(2), b(2))); const tx = TIT.x, ty = TIT.y; return { x: M(on.x, tx, p), y: M(on.y, ty, p) - Math.sin(Math.PI * p) * 260, d: M(82, TIT.d, p) }; }
+  if (t < b(5)) { const land = Math.exp(-(t - b(4)) / .08) * (t >= b(4) ? 1 : 0); return { x: TIT.x, y: TIT.y + 6 * land, d: TIT.d, sq: 1 - .25 * land }; }
+  if (t < b(6)) { const p = P(t, b(5), b(1)); const x = M(TIT.x, GR.x0, E.io(p)), y = M(TIT.y, GR.y0, p) - Math.sin(Math.PI * p) * 300 * (1 - p * .3); return { x, y, d: TIT.d }; }
+  if (t < b(10)) { const tau = C(t - b(6), 0, GT); const land = t < b(6) + .2 ? Math.exp(-(t - b(6)) / .06) : 0; return { x: GR.x0 + GR.w * tau / GT, y: GR.y0 - GR.h * gspring(tau), d: TIT.d, sq: 1 - .3 * land }; }
+  if (t < b(11)) { const p = E.xio(P(t, b(10), .42)); return { x: M(settle.x, 960, p), y: M(settle.y, 540, p), d: TIT.d }; }
+  if (t < b(16)) return { x: 960, y: 540, d: 0 };
+  if (t < b(23.9)) { const beat = (t - b(16)) % B; return { x: 960, y: 540, d: TIT.d * (1 + .25 * Math.exp(-beat / .1)) }; }
+  if (t < b(27.2)) { const p = spring(t - b(23.9), 200, 22); return { x: M(960, cardDotPos.x, p), y: M(540, cardDotPos.y, p), d: M(TIT.d, 40, C(p)) }; }
+  if (t < b(29.5)) {
+    const p = E.io(P(t, b(27.2), b(29.5) - b(27.2)));
+    const tau = (t - b(27.2)) * 1.6; const wig = 140 * Math.exp(-GZ * GWN * tau / 1.6) * Math.sin(GWN * tau / 1.6) * (1 - p);
+    return { x: M(cardDotPos.x, off.x, p), y: M(cardDotPos.y, off.y, p) - wig, d: M(40, 82, E.io(P(t, b(28.6), b(0.9)))) };
+  }
+  const s = spring(t - b(29.5), 300, 30); return { x: off.x, y: off.y + 4 * (1 - s) * Math.exp(-(t - b(29.5)) / .1), d: 82 };
+}
+
+/* ===== demi-teinte (canvas) ===== */
+const SP = 36;
+function halftone(t, mode) {
+  hctx.clearRect(0, 0, 1920, 1080);
+  if (!mode) return;
+  hctx.fillStyle = PAPER;
+  const cx = mode.cx, cy = mode.cy;
+  for (let y = SP / 2 - 18; y < 1080 + SP; y += SP) for (let x = SP / 2 - 18; x < 1920 + SP; x += SP) {
+    const d = Math.hypot(x - cx, y - cy);
+    const r = mode.r(d); if (r <= .3) continue;
+    hctx.beginPath(); hctx.arc(x, y, Math.min(r, 30), 0, Math.PI * 2); hctx.fill();
+  }
+}
+
+/* ================= SEEK ================= */
+function seek(t) {
+  /* --- fond : clair -> noir (caché sous le cercle) -> clair au retour --- */
+  const dark = (t >= b(12) && t < b(28));
+  bg.style.background = dark ? INK : PAPER;
+
+  /* --- interrupteur et lettres --- */
+  const tOn = spring(t - b(1) - .02, 300, 22);
+  const tCol = t >= b(1) ? INK : '#DAD8D1';
+  const collapse = E.i3(P(t, b(2), .4));
+  const back = spring(t - b(29.0), 300, 34);
+  const tw = t < b(27) ? 180 * (1 - collapse) : 180 * back;
+  track.style.width = tw + 'px'; track.style.left = (t < b(27) ? ROW.track.x + 180 - tw - (180 - tw) * 0 : ROW.track.x) + 'px';
+  track.style.left = (t < b(27) ? ROW.knobOn.x + 50 - tw : ROW.knobOff.x - 50) + 'px';
+  track.style.background = t >= b(27) ? '#DAD8D1' : tCol;
+  vis(track, tw > 1);
+  letters.forEach((e, i) => { const s = letterState(i, t); vis(e, s.show); e.style.transform = `translate(${s.x}px,${s.y}px) scale(${s.s}) rotate(${s.r}deg)`; });
+  // petit point d'encre du « ı » du libellé : disparaît quand le point bleu arrive
+  const mi = letterState(11, t);
+  const tk = t < b(27) ? 1 - E.o3(P(t, b(3.4), .25)) : spring(t - b(28.5), 300, 30);
+  vis(inkTit, tk > .01 && mi.show);
+  const tsz = LAY.tit.d * mi.s;
+  inkTit.style.width = inkTit.style.height = tsz + 'px';
+  inkTit.style.transform = `translate(${mi.x + LAY.tit.dx * mi.s - tsz / 2}px,${mi.y + (LAY.bigBase - LAY.big[3].y + LAY.tit.dy) * mi.s - tsz / 2}px) scale(${tk})`;
+
+  /* --- graphique (même fonction que le point) --- */
+  const gOn = t >= b(5.4) && t < b(11);
+  [base, target, curve].forEach((e) => vis(e, gOn));
+  const gin = E.o3(P(t, b(5.4), .45)), gout = E.i3(P(t, b(10), .35));
+  base.setAttribute('x1', GR.x0 + GR.w * gout); base.setAttribute('x2', GR.x0 + GR.w * gin);
+  target.setAttribute('x1', GR.x0 + GR.w * gout); target.setAttribute('x2', GR.x0 + GR.w * E.o3(P(t, b(6), .5)));
+  const tau = C(t - b(6), 0, GT); let dpath = '';
+  if (t >= b(6)) { const n = Math.max(2, Math.ceil(tau * 120)); for (let k = 0; k <= n; k++) { const tt = tau * k / n; dpath += (k ? 'L' : 'M') + (GR.x0 + GR.w * tt / GT).toFixed(1) + ' ' + (GR.y0 - GR.h * gspring(tt)).toFixed(1); } }
+  curve.setAttribute('d', dpath);
+  curve.style.clipPath = gout > 0 ? `inset(0 0 0 ${gout * 100}%)` : 'none';
+  const cOn = t >= b(9) && t < b(10.4);
+  vis(call, cOn); vis(callLab, cOn);
+  const cp = spring(t - b(9), 260, 22), co = E.i3(P(t, b(10), .3));
+  call.style.transform = `translate(${settle.x - 300}px,${settle.y - 190 - co * 300}px) scale(${cp})`; call.style.transformOrigin = '0 100%';
+  callLab.style.transform = `translate(${settle.x - 296}px,${settle.y - 60 - co * 300 + (1 - cp) * 20}px)`; callLab.style.opacity = C(cp);
+  // ligne de tir
+  const shOn = t >= b(10) && t < b(11.6); vis(shoot, shOn);
+  const sp = E.xio(P(t, b(10), .42)), sback = E.i3(P(t, b(11), .3));
+  shoot.setAttribute('x1', M(settle.x, 960, sback)); shoot.setAttribute('y1', M(settle.y, 540, sback));
+  shoot.setAttribute('x2', M(settle.x, 960, sp)); shoot.setAttribute('y2', M(settle.y, 540, sp));
+
+  /* --- forme : cercle -> carré qui tourne -> pilule -> point --- */
+  const cOn2 = t >= b(11) && t < b(16); vis(circ, cOn2);
+  const Rmax = Math.hypot(960, 540) * 1.06;
+  const grow = E.xo(P(t, b(11), .42)), shrink = E.io(P(t, b(15), .55));
+  const R = M(TIT.d / 2, Rmax, grow) * (1 - shrink) + TIT.d / 2 * shrink;
+  circ.style.left = (960 - R) + 'px'; circ.style.top = (540 - R) + 'px'; circ.style.width = circ.style.height = 2 * R + 'px';
+  const sOn = t >= b(12) && t < b(15.6); vis(sq, sOn);
+  const sIn = spring(t - b(12), 220, 22);
+  const rot = 90 * spring(t - b(12), 200, 20) + 90 * spring(t - b(13), 200, 20);
+  const pw = 220 + 560 * spring(t - b(14), 220, 22), ph = 220 - 20 * spring(t - b(14), 220, 22), pr = 54 + 46 * spring(t - b(14), 220, 22);
+  const sc = sIn * (1 - shrink);
+  sq.style.left = (960 - pw / 2) + 'px'; sq.style.top = (540 - ph / 2) + 'px'; sq.style.width = pw + 'px'; sq.style.height = ph + 'px'; sq.style.borderRadius = pr + 'px';
+  sq.style.transform = `scale(${sc}) rotate(${rot}deg)`;
+
+  /* --- mots en orbite --- */
+  const wOn = t >= b(16) && t < b(21.6); vis(words, wOn);
+  if (wOn) {
+    const th = -(t - b(16)) * .55;
+    const hl = Math.floor((t - b(17)) / B);
+    orb.forEach((e, i) => {
+      const a = th + LAY.orbA[i];
+      const rin = 330 * spring(t - (b(16) + .02 + i * .008), 170, 20);
+      const out = E.i2(P(t, b(20) + (i % 7) * .02, .9));
+      const r = rin + out * 1200;
+      const x = 960 + r * Math.cos(a), y = 540 + r * Math.sin(a);
+      e.style.transform = `translate(${x - LAY.orbW[i] / 2}px,${y - 25}px) rotate(${a + Math.PI / 2}rad) scale(${1 - .85 * out})`;
+      e.style.color = (WORD_OF[i] === hl && hl >= 0 && hl < 5 && t < b(20)) ? ACC : PAPER;
+    });
+  }
+
+  /* --- demi-teinte : naît des lettres, grandit, déborde, puis se retourne --- */
+  let mode = null;
+  if (t >= b(20.3) && t < b(23.45)) {
+    const wave = (t - b(20.3)) * 1700;
+    const fillP = (d) => E.io(P(t, b(22) + d / 3000, .55));
+    mode = { cx: 960, cy: 540, r: (d) => { if (d > wave) return 0; const near = 2.4 + 10 * Math.exp(-d / 260) * (1 + .3 * Math.exp(-((t - b(16)) % B) / .1)); const g = C((wave - d) / 160); return M(near * g, 31, fillP(d)); } };
+  }
+  if (t >= b(27.3) && t < b(28)) {
+    const dp = dotAt(t); const wave = (t - b(27.3)) * 4200;
+    mode = { cx: dp.x, cy: dp.y, r: (d) => (d > wave ? 0 : M(3, 31, E.io(C((wave - d) / 500)))) };
+  }
+  halftone(t, mode);
+  const flipA = E.i3(P(t, b(23), .2));
+  ht.style.transform = `scaleX(${t >= b(20.3) && t < b(23.45) ? 1 - flipA : 1})`;
+  const cardOn = t >= b(23.4) && t < b(27.3); vis(card, cardOn);
+  card.style.transform = `scaleX(${E.o3(P(t, b(23.4), .22))})`;
+  cardL.forEach((m, i) => { const p = E.o4(P(t, b(24) + i * B, .55)), o = E.i3(P(t, b(27) + i * .05, .3)); m.firstChild.style.transform = `translateY(${(1 - p) * 115 - o * 115}%)`; });
+
+  /* --- point --- */
+  const dp = dotAt(t);
+  const dOn = dp.d > .5 && !(t >= b(11) && t < b(16));
+  vis(dot, dOn);
+  const sqz = dp.sq || 1;
+  dot.style.width = dot.style.height = dp.d + 'px';
+  dot.style.transform = `translate(${dp.x - dp.d / 2}px,${dp.y - dp.d / 2}px) scale(${1 / Math.sqrt(sqz)},${sqz})`;
+  dot.style.transformOrigin = '50% 100%';
+
+  /* --- curseur --- */
+  let i = 0; while (i < CUR.length - 2 && t >= CUR[i + 1][0]) i++;
+  const [ta, xa, ya] = CUR[i], [tb, xb, yb] = CUR[i + 1], ce = E.io(C((t - ta) / (tb - ta)));
+  const cs = t >= b(1) && t < b(1) + .18 ? 1 - .15 * Math.sin(Math.PI * (t - b(1)) / .18) : 1;
+  cursor.style.transform = `translate(${M(xa, xb, ce) - 4}px,${M(ya, yb, ce) - 3}px) scale(${cs})`;
+}
+
+/* ===== préparation ===== */
+window.seek = seek;
+window.render = (t) => { seek(t); return new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); };
+window.ready = (async () => {
+  await document.fonts.load('900 100px UB'); await document.fonts.load('500 40px UM'); await document.fonts.ready;
+  // mesures des deux lignes
+  const mk = (txt, size, y) => { const d = el('div', 'meas', document.body, '', `font:900 ${size}px/1 UB;top:${y}px`); const sp = [...txt].map((c) => el('span', '', d, c)); const bl = el('span', '', d, '', 'display:inline-block;width:0;height:0;vertical-align:baseline'); return { d, sp, bl }; };
+  const lab = mk(LABEL, LS, 0), big = mk(BIG, BS, 0);
+  const lw = lab.d.getBoundingClientRect().width, bw = big.d.getBoundingClientRect().width;
+  const rowW = lw + 44 + 180, rowX = 960 - rowW / 2, labTop = 540 - LS * .62;
+  lab.d.style.left = rowX + 'px'; lab.d.style.top = labTop + 'px';
+  big.d.style.left = (960 - bw / 2) + 'px'; big.d.style.top = (560 - BS * .6) + 'px';
+  LAY.lab = lab.sp.map((s) => { const r = s.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width }; });
+  LAY.big = big.sp.map((s) => { const r = s.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width }; });
+  LAY.labBase = lab.bl.getBoundingClientRect().top; LAY.bigBase = big.bl.getBoundingClientRect().top;
+  const tst = el('div', 'L', document.body, 'M'); const tb = el('span', '', tst, '', 'display:inline-block;width:0;height:0;vertical-align:baseline');
+  const off260 = tb.getBoundingClientRect().top - tst.getBoundingClientRect().top; tst.remove();
+  LAY.lab.forEach((r) => (r.y = LAY.labBase - off260 * LS / BS)); LAY.big.forEach((r) => (r.y = LAY.bigBase - off260)); LAY.off = off260;
+  // position du point sur le « i » (mesurée au pixel)
+  const cv = document.createElement('canvas'); cv.width = 400; cv.height = 400; const cx = cv.getContext('2d');
+  cx.font = `900 ${BS}px UB`; cx.fillStyle = '#000'; cx.fillText('i', 100, 330);
+  const im = cx.getImageData(0, 0, 400, 400).data; let top = -1, bot = -1, minx = 1e9, maxx = -1;
+  for (let y = 0; y < 400; y++) { let any = false; for (let x = 0; x < 400; x++) if (im[(y * 400 + x) * 4 + 3] > 128) { any = true; if (top >= 0 && bot < 0) { minx = Math.min(minx, x); maxx = Math.max(maxx, x); } if (top < 0) { top = y; minx = x; maxx = x; } } if (top >= 0 && bot < 0 && !any) bot = y; if (bot >= 0) break; }
+  LAY.tit = { dx: (minx + maxx) / 2 - 100, dy: (top + bot) / 2 - 330, d: Math.max(bot - top, maxx - minx) };
+  const iR = LAY.big[3];
+  TIT = { x: iR.x + LAY.tit.dx, y: LAY.bigBase + LAY.tit.dy, d: LAY.tit.d };
+  // lettres
+  letters = [...LABEL].map((c, i) => { const e = el('div', 'L', ui, c); if (i < 8) e.style.fontSize = LS + 'px'; return e; });
+  // dans la scène « Réduire », les lettres non-Motion utilisent leur propre taille : transform sans échelle
+  letters.forEach((e, i) => { if (i < 8) e.style.transformOrigin = '0 0'; });
+  const _ls = letterState; letterState = (i, t) => { const s = _ls(i, t); if (i < 8) s.s = 1; return s; };
+  inkTit = el('div', 'a', ui, '', `left:0;top:0;border-radius:50%;background:${INK};transform-origin:50% 50%`);
+  // interrupteur
+  const trX = rowX + lw + 44, trY = 540 - LS * .62 + LS * .5 - 50 + 6;
+  ROW = { track: { x: trX, y: trY }, knobOff: { x: trX + 50, y: trY + 50 }, knobOn: { x: trX + 130, y: trY + 50 } };
+  track = el('div', 'a', ui, '', `left:${trX}px;top:${trY}px;width:180px;height:100px;border-radius:50px;background:#DAD8D1;z-index:-1`);
+  ui.style.zIndex = 5;
+  // orbite : angles proportionnels aux largeurs
+  const ow = orb.map((e) => e.getBoundingClientRect().width); const tot = ow.reduce((a, c) => a + c, 0); let acc = 0;
+  LAY.orbW = ow; LAY.orbA = ow.map((w) => { const a = (acc + w / 2) / tot * Math.PI * 2; acc += w; return a; });
+  // point final après « MaMarque »
+  card.style.visibility = 'visible'; const r0 = cardL[0].firstChild.getBoundingClientRect();
+  cardDotPos = { x: r0.right + 34, y: r0.bottom - 54 };
+  // curseur
+  const rest = [ROW.knobOff.x + 120, ROW.knobOff.y + 140];
+  CUR = [[0, ...rest], [.05, ...rest], [.46, ROW.knobOff.x + 6, ROW.knobOff.y + 4], [.62, ROW.knobOff.x + 6, ROW.knobOff.y + 4], [1.3, 2040, 1200], [b(28.6), 2040, 1200], [14.95, ...rest], [15, ...rest]];
+  lab.d.remove(); big.d.remove();
+  seek(0); return true;
+})();
+if (location.hash === '#play') { let t = 0, play = true, last = performance.now(); const tick = (n) => { if (play) t = (t + (n - last) / 1000) % DUR; last = n; seek(t); requestAnimationFrame(tick); }; addEventListener('keydown', (e) => { if (e.code === 'Space') play = !play; if (e.code === 'ArrowRight') t += 1 / 60; if (e.code === 'ArrowLeft') t -= 1 / 60; if (e.code === 'KeyR') t = 0; }); requestAnimationFrame(tick); }
+</script></body></html>

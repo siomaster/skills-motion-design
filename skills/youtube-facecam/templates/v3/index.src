@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="fr" data-resolution="landscape">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>3 choses avant Claude v3</title>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      @font-face { font-family: "DMS"; src: url("assets/fonts/DMSans_18pt-Light.ttf"); font-weight: 300; }
+      @font-face { font-family: "DMS"; src: url("assets/fonts/DMSans_18pt-LightItalic.ttf"); font-weight: 300; font-style: italic; }
+      @font-face { font-family: "DMS"; src: url("assets/fonts/DMSans_18pt-Regular.ttf"); font-weight: 400; }
+      @font-face { font-family: "DMS"; src: url("assets/fonts/DMSans_18pt-Medium.ttf"); font-weight: 500; }
+      @font-face { font-family: "DMD"; src: url("assets/fonts/DMSans_36pt-Light.ttf"); font-weight: 300; }
+      @font-face { font-family: "DMD"; src: url("assets/fonts/DMSans_36pt-Medium.ttf"); font-weight: 500; }
+      @font-face { font-family: "DMD"; src: url("assets/fonts/DMSans_36pt-MediumItalic.ttf"); font-weight: 500; font-style: italic; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1920px; height: 1080px; overflow: hidden; background: #070707; }
+      #root { position: relative; width: 100%; height: 100%; overflow: hidden; font-family: "DMS", sans-serif; letter-spacing: -0.02em; color: #F4F4F2; background: #070707; }
+      .L { position: absolute; inset: 0; overflow: hidden; opacity: 0; display: none; }
+      #facebox, #leak, .burn { display: block; }
+      #leak { opacity: 1; }
+      #facebox { opacity: 1; z-index: 0; }
+      #facein { position: absolute; inset: 0; }
+      #facein video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+      .scr { z-index: 10; background: #070707; }
+      .scr video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+      .dim { position: absolute; inset: 0; opacity: 0; backdrop-filter: blur(9px) saturate(0.85); -webkit-backdrop-filter: blur(9px) saturate(0.85); background: rgba(7,7,7,0.58); }
+      .card { z-index: 20; background: #070707; }
+      .g1, .g2 { position: absolute; width: 1500px; height: 1100px; border-radius: 50%; pointer-events: none; }
+      .g1 { right: -620px; top: -560px; background: radial-gradient(closest-side, rgba(214,252,49,0.20), rgba(214,252,49,0.06) 55%, rgba(214,252,49,0) 100%); }
+      .g2 { left: -640px; bottom: -600px; background: radial-gradient(closest-side, rgba(214,252,49,0.15), rgba(214,252,49,0.045) 55%, rgba(214,252,49,0) 100%); }
+      .grain { position: absolute; inset: 0; opacity: 0.06; background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>"); }
+      .stage { position: absolute; inset: 0; }
+      .tx { position: absolute; white-space: nowrap; letter-spacing: -0.02em; line-height: 1.06; text-shadow: 0 0 18px rgba(255,255,255,0.22); }
+      .dmd { font-family: "DMD", sans-serif; }
+      .w500 { font-weight: 500; } .w300 { font-weight: 300; } .it { font-style: italic; }
+      .lime { color: #D6FC31; }
+      .grey { color: #A9A9A4; }
+      .caps { letter-spacing: 0.3em; }
+      .metal { background: linear-gradient(180deg, #FFFFFF 0%, #DADAD6 45%, #8D8D8A 100%); -webkit-background-clip: text; background-clip: text; color: transparent; text-shadow: none; }
+      .glass { position: absolute; border-radius: 22px; background: rgba(18,18,18,0.68); border: 1.5px solid rgba(255,255,255,0.13); backdrop-filter: blur(20px) saturate(1.2); -webkit-backdrop-filter: blur(20px) saturate(1.2); box-shadow: 0 24px 60px rgba(0,0,0,0.45); overflow: hidden; }
+      .gc { display: flex; align-items: center; gap: 20px; padding: 0 30px 0 18px; white-space: nowrap; }
+      .gc .t1 { font-size: 34px; font-weight: 500; }
+      .gc .t2 { font-size: 24px; font-weight: 300; font-style: italic; color: #BDBDB8; margin-top: 2px; }
+      .ict { width: 64px; height: 64px; border-radius: 16px; background: #262626; display: grid; place-items: center; flex: none; }
+      .ict.on { background: #D6FC31; }
+      .hz { position: absolute; left: 10%; right: 10%; top: -26px; height: 44px; background: radial-gradient(closest-side, rgba(214,252,49,0.55), rgba(214,252,49,0)); filter: blur(10px); opacity: 0.5; }
+      .bshade { position: absolute; left: 0; right: 0; bottom: 0; height: 560px; background: linear-gradient(0deg, rgba(0,0,0,0.86), rgba(0,0,0,0)); }
+      .lshade { position: absolute; left: 0; top: 0; bottom: 0; width: 1100px; background: linear-gradient(90deg, rgba(0,0,0,0.78), rgba(0,0,0,0)); }
+      .tile3 { position: absolute; width: 330px; height: 460px; border-radius: 26px; background: linear-gradient(165deg, #1D1D1D, #0B0B0B 70%); border: 1.5px solid #2E2E2E; box-shadow: 0 50px 90px rgba(0,0,0,0.6); overflow: hidden; }
+      .tile3 .holo { position: absolute; left: -20%; right: -20%; bottom: -70px; height: 170px; background: linear-gradient(90deg, rgba(214,252,49,0.0), rgba(214,252,49,0.55), rgba(255,255,255,0.6), rgba(120,200,255,0.35), rgba(214,252,49,0.0)); filter: blur(26px); }
+      .bar { position: absolute; border-radius: 24px; background: rgba(26,26,26,0.92); border: 1.5px solid #363636; display: flex; align-items: center; box-shadow: 0 30px 70px rgba(0,0,0,0.5); }
+      .pill { position: absolute; display: flex; align-items: center; gap: 14px; height: 76px; padding: 0 32px 0 22px; border-radius: 40px; font-size: 32px; font-weight: 500; white-space: nowrap; }
+      .cur { position: absolute; width: 50px; height: 50px; z-index: 5; }
+      .bub { position: absolute; right: 56px; height: 76px; padding: 0 32px; border-radius: 26px 26px 8px 26px; background: #F4F4F2; color: #0B0B0B; font-size: 32px; font-weight: 500; display: flex; align-items: center; white-space: nowrap; }
+      .row { position: absolute; display: flex; align-items: center; gap: 22px; height: 96px; padding: 0 34px 0 16px; border-radius: 22px; white-space: nowrap; font-size: 40px; font-weight: 500; }
+      .track { position: absolute; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.18); }
+      .fill { position: absolute; left: 0; top: -1px; height: 6px; width: 100%; border-radius: 3px; background: #D6FC31; box-shadow: 0 0 10px #D6FC31, 0 0 26px rgba(214,252,49,0.55); transform-origin: 0 50%; }
+      .vcard { position: absolute; border-radius: 22px; overflow: hidden; border: 1.5px solid rgba(255,255,255,0.14); box-shadow: 0 40px 90px rgba(0,0,0,0.6); background: #111; }
+      .vcard video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+      #leak { z-index: 60; pointer-events: none; }
+      #leak i { position: absolute; inset: 0; opacity: 0; mix-blend-mode: screen; }
+      #lk_b { background: radial-gradient(60% 85% at 100% 65%, #3A2BFF 0%, rgba(106,60,255,0.55) 45%, rgba(0,0,0,0) 72%); }
+      #lk_w { background: radial-gradient(95% 95% at 32% 22%, #FFFFFF 0%, #FFF1F8 38%, #C9A2FF 68%, #3A2BFF 100%); }
+      #lk_g { background: radial-gradient(60% 65% at 0% 0%, rgba(214,252,49,0.95) 0%, rgba(150,200,30,0.55) 40%, rgba(0,0,0,0) 72%); }
+      #lk_n { background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='300' height='300'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='1.2' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>"); -webkit-mask-image: radial-gradient(60% 65% at 0% 0%, #000 0%, transparent 70%); mask-image: radial-gradient(60% 65% at 0% 0%, #000 0%, transparent 70%); }
+      .burn { z-index: 55; mix-blend-mode: screen; opacity: 0; }
+      .burn video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="473.0" data-width="1920" data-height="1080" data-fps="30">
+      <div id="facebox" class="L">
+        <div id="facein">
+          <video id="face1" src="assets/face.mp4" muted playsinline data-start="0" data-duration="43.1" data-media-start="0" data-track-index="0"></video>
+          <video id="face2" src="assets/face.mp4" muted playsinline data-start="135.8" data-duration="39.0" data-media-start="42.53" data-track-index="0"></video>
+          <video id="face3" src="assets/face.mp4" muted playsinline data-start="372.9" data-duration="19.8" data-media-start="81.09" data-track-index="0"></video>
+          <video id="face4" src="assets/face.mp4" muted playsinline data-start="447.2" data-duration="25.8" data-media-start="100.27" data-track-index="0"></video>
+        </div>
+        <div id="fshade" class="bshade" style="opacity:0"></div>
+        <div id="lshade" class="lshade" style="opacity:0"></div>
+      </div>
+
+      <!-- CARROUSEL : tout le monde parle de motion design -->
+      <div id="CAR" class="L" style="z-index:5;background:#070707"><div class="g1"></div><div class="g2"></div><div class="grain"></div>
+        <div id="carlab" class="tx w300 it" style="left:0;right:0;top:210px;text-align:center;font-size:40px;color:#D8D8D3">Tout le monde en parle</div>
+        <div id="carrow" style="position:absolute;left:0;top:0;width:1920px;height:1080px">
+          <div class="vcard" id="cc1" style="left:200px;top:382px;width:560px;height:315px"><video id="car1" src="assets/car1.mp4" muted playsinline data-start="5.0" data-duration="5.4" data-track-index="2"></video></div>
+          <div class="vcard" id="cc2" style="left:820px;top:382px;width:560px;height:315px"><video id="car2" src="assets/car2.mp4" muted playsinline data-start="5.0" data-duration="5.4" data-track-index="3"></video></div>
+          <div class="vcard" id="cc3" style="left:1440px;top:382px;width:560px;height:315px"><video id="car3" src="assets/car3.mp4" muted playsinline data-start="5.0" data-duration="5.4" data-track-index="4"></video></div>
+          <div class="vcard" id="cc4" style="left:2060px;top:382px;width:560px;height:315px"><video id="car4" src="assets/car4.mp4" muted playsinline data-start="5.0" data-duration="5.4" data-track-index="2"></video></div>
+          <div class="vcard" id="cc5" style="left:2680px;top:382px;width:560px;height:315px"><video id="car5" src="assets/car5.mp4" muted playsinline data-start="5.0" data-duration="5.4" data-track-index="3"></video></div>
+          <div class="vcard" id="cc6" style="left:3300px;top:382px;width:560px;height:315px"><video id="car6" src="assets/car6.mp4" muted playsinline data-start="5.0" data-duration="5.4" data-track-index="4"></video></div>
+        </div>
+      </div>
+
+      <!-- ÉCRANS (format d'origine, sans zoom) -->
+      <div id="S1" class="L scr"><video id="scr1" src="assets/scr1.mp4" muted playsinline data-start="43.05" data-duration="92.67" data-track-index="1"></video><div class="dim" id="S1d"></div></div>
+      <div id="S2" class="L scr"><video id="scr2" src="assets/scr2.mp4" muted playsinline data-start="174.77" data-duration="147.14" data-track-index="1"></video><div class="dim" id="S2d"></div></div>
+      <div id="S3" class="L scr"><video id="scr3" src="assets/scr3.mp4" muted playsinline data-start="392.66" data-duration="54.52" data-track-index="1"></video><div class="dim" id="S3d"></div></div>
+
+      <!-- MES RENDUS : 1 horizontale + 2 verticales -->
+      <div id="SHOW" class="L" style="z-index:12;background:#070707"><div class="g1"></div><div class="g2"></div><div class="grain"></div>
+        <div id="shst" style="position:absolute;inset:0">
+          <div class="vcard" id="shv1" style="left:136px;top:250px;width:304px;height:540px"><video id="rv1" src="assets/rv1.mp4" muted playsinline data-start="144.5" data-duration="4.9" data-track-index="2"></video></div>
+          <div class="vcard" id="shh" style="left:480px;top:250px;width:960px;height:540px"><video id="rh" src="assets/rh.mp4" muted playsinline data-start="144.5" data-duration="4.9" data-track-index="3"></video></div>
+          <div class="vcard" id="shv2" style="left:1480px;top:250px;width:304px;height:540px"><video id="rv2" src="assets/rv2.mp4" muted playsinline data-start="144.5" data-duration="4.9" data-track-index="4"></video></div>
+          <div id="shl" class="tx w300 it" style="left:0;right:0;top:840px;text-align:center;font-size:40px;color:#D8D8D3">De très bons rendus</div>
+        </div>
+      </div>
+
+      <!-- PAUSE PUBLICITAIRE -->
+      <div id="PUB" class="L" style="z-index:25;background:#000"><video id="pub" src="assets/pub.mp4" muted playsinline data-start="324.61" data-duration="47.4" data-track-index="1" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"></video></div>
+
+      <div id="O" style="position:absolute;inset:0;z-index:30;pointer-events:none"></div>
+      <div id="C" style="position:absolute;inset:0;z-index:40;pointer-events:none"></div>
+
+      <div id="bu1" class="L burn"><video id="vbu1" src="assets/burn2.mp4" muted playsinline data-start="321.85" data-duration="1.6" data-track-index="5"></video></div>
+      <div id="bu2" class="L burn"><video id="vbu2" src="assets/burn4.mp4" muted playsinline data-start="371.7" data-duration="1.9" data-track-index="5"></video></div>
+      <div id="leak" class="L"><i id="lk_b"></i><i id="lk_w"></i><i id="lk_g"></i><i id="lk_n"></i></div>
+    </div>
+    <script src="film.js"></script>
+  </body>
+</html>

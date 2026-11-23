@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><title>Opus 5.5 pub</title>
+<style>
+@font-face{font-family:U;src:url(fonts/Urbanist-VF.ttf);font-weight:100 900}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1920px;height:1080px;overflow:hidden;background:#f5f5f2;font-family:U;font-weight:500;color:#0e0e10}
+#stage{position:absolute;inset:0;overflow:hidden;background:#f5f5f2}
+#cam{position:absolute;left:0;top:0;width:1920px;height:1080px;transform-origin:0 0}
+.a{position:absolute}
+.w{position:absolute;background:#fff;border-radius:28px;box-shadow:0 0 0 1px rgba(14,14,16,.06),0 30px 60px -34px rgba(14,30,60,.28);overflow:hidden}
+.line{overflow:hidden;white-space:nowrap}
+.line>span{display:inline-block}
+.wm{display:inline-block;overflow:hidden;vertical-align:top;padding:0 .03em .14em;margin-bottom:-.14em}
+.wm>span{display:inline-block}
+.cap{position:absolute;left:0;width:1920px;text-align:center;white-space:nowrap;letter-spacing:-.03em}
+.row{position:absolute;display:flex;align-items:center;gap:16px;white-space:nowrap;overflow:hidden}
+.ck{width:30px;height:30px;border-radius:15px;display:flex;align-items:center;justify-content:center;flex:none}
+</style></head><body>
+<div id="stage"><div id="cam"></div><div id="over"></div></div>
+<script>
+/* ===== constantes ===== */
+const DUR = 47.4; window.DUR = DUR;
+const BLUE = '#00A1FF', INK = '#0e0e10', GREY = '#8a8a86', LINE = '#ececE8', EMER = '#059669';
+const C = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const M = (a, b, p) => a + (b - a) * p;
+const P = (t, a, d) => C((t - a) / d);
+const E = { io: (x) => (x < .5 ? 4 * x * x * x : 1 - (-2 * x + 2) ** 3 / 2), o3: (x) => 1 - (1 - x) ** 3, o4: (x) => 1 - (1 - x) ** 4, i3: (x) => x * x * x, qio: (x) => (x < .5 ? 8 * x ** 4 : 1 - (-2 * x + 2) ** 4 / 2) };
+function spring(t, k = 170, d = 26) { if (t <= 0) return 0; const w = Math.sqrt(k), z = d / (2 * w); if (z >= 1) return 1 - Math.exp(-w * t) * (1 + w * t); const wd = w * Math.sqrt(1 - z * z); return 1 - Math.exp(-z * w * t) * (Math.cos(wd * t) + (z * w / wd) * Math.sin(wd * t)); }
+function mulberry32(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function el(tag, cls, parent, html = '', style = '') { const e = document.createElement(tag); if (cls) e.className = cls; if (html) e.innerHTML = html; if (style) e.style.cssText = style; parent.appendChild(e); return e; }
+const box = (e, x, y, w, h) => { e.style.left = x + 'px'; e.style.top = y + 'px'; e.style.width = w + 'px'; e.style.height = h + 'px'; };
+const vis = (e, on) => { e.style.visibility = on ? 'inherit' : 'hidden'; };
+const cam = document.getElementById('cam');
+const rise = (e, t, t0, d = .5) => { e.firstChild.style.transform = `translateY(${(1 - E.o4(P(t, t0, d))) * 125}%)`; };
+const IMG = 'img/';
+const ICK = (c = '#fff', s = 16, w = 3) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>`;
+const ICO = { layers: '<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/>', file: '<path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4"/>', play: '<circle cx="12" cy="12" r="9"/><path d="M10 8.8v6.4l5.2-3.2z" fill="currentColor"/>', arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>', cart: '<path d="M3 4h2l2.4 11h10.2L20 7H6.3"/><circle cx="9" cy="19.5" r="1.4"/><circle cx="17" cy="19.5" r="1.4"/>', lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>', chev: '<path d="M6 9l6 6 6-6"/>' };
+const svgI = (k, s = 20, c = 'currentColor', w = 2) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round">${ICO[k]}</svg>`;
+// légende centrée, mots qui montent d'une ligne de masque
+const CAPS = [];
+function cap(txt, y, size, times, tout, color = INK, parent = cam) {
+  const d = el('div', 'cap', parent, '', `top:${y}px;font:500 ${size}px U;color:${color}`); const ws = []; let acc = false;
+  txt.split(' ').forEach((w, i, a) => { if (w.startsWith('*')) acc = true; const m = el('span', 'wm', d); const s = el('span', '', m, w.replace(/\*/g, '')); if (acc) s.style.color = BLUE; ws.push(s); if (w.includes('*', 1)) acc = false; if (i < a.length - 1) m.insertAdjacentHTML('afterend', ' '); });
+  const o = { d, ws, times, tout }; CAPS.push(o); return o;
+}
+function animCap(o, t) { const on = t >= o.times[0] - .1 && t < o.tout + .45; vis(o.d, on); if (!on) return; const po = E.i3(P(t, o.tout, .35)); o.ws.forEach((s, i) => { const p = E.o4(P(t, (o.times[i] ?? o.times[o.times.length - 1]) - .05, .5)); s.style.transform = `translateY(${(1 - p) * 150 - po * 150}%)`; }); }
+
+/* ================= A · des pubs en motion design (0 – 4,6) ================= */
+// lecteur vidéo blanc qui joue une mini animation
+function miniPlayer(w, h) {
+  const card = el('div', 'w', cam, '', `width:${w}px;height:${h}px;z-index:10`);
+  const canv = el('div', 'a', card, '', `left:12px;top:12px;right:12px;bottom:58px;border-radius:18px;background:#f2f2ef;overflow:hidden`);
+  const shape = el('div', 'a', canv, '', `background:${BLUE};display:flex;align-items:center;justify-content:center;color:#fff;font:500 0px U;white-space:nowrap;overflow:hidden`);
+  const bar = el('div', 'a', card, '', 'left:58px;right:84px;bottom:27px;height:4px;border-radius:2px;background:#e6e6e2');
+  const fill = el('div', 'a', bar, '', `left:0;top:0;bottom:0;border-radius:2px;background:${INK}`);
+  el('div', 'a', card, `<svg width="14" height="14" viewBox="0 0 24 24"><path d="M7 4v16l13-8z" fill="${INK}"/></svg>`, 'left:24px;bottom:22px');
+  const tm = el('div', 'a', card, '0:00', `right:22px;bottom:18px;font:500 14px U;color:${GREY}`);
+  return { card, canv, shape, fill, tm, w, h };
+}
+const PL = [miniPlayer(960, 600), miniPlayer(340, 560), miniPlayer(520, 520)];
+const FMT = ['16:9', '9:16', '1:1'];
+const fmtTag = FMT.map((f) => el('div', 'a', cam, f, `padding:6px 12px;border-radius:999px;background:${INK};color:#fff;font:500 15px U;z-index:12`));
+function playMini(o, t, t0) {
+  // point -> cercle -> carré qui tourne -> pilule « motion design » -> point (boucle de 3 s)
+  const cw = o.canv.offsetWidth || (o.w - 24), ch = o.canv.offsetHeight || (o.h - 70);
+  const u = ((t - t0) % 3.2 + 3.2) % 3.2;
+  const a = spring(u - .1, 200, 22), b = spring(u - .8, 200, 22), c = spring(u - 1.5, 200, 24), d = spring(u - 2.6, 260, 30);
+  const s0 = Math.min(cw, ch);
+  let size = M(0, s0 * .12, a); size = M(size, s0 * .42, b);
+  let wv = size, hv = size, r = size / 2, rot = 0;
+  wv = M(wv, s0 * .36, b); hv = M(hv, s0 * .36, b); r = M(r, s0 * .08, b); rot = 90 * (b - c);
+  wv = M(wv, Math.min(cw * .78, s0 * 1.25), c); hv = M(hv, s0 * .2, c); r = M(r, s0 * .1, c);
+  wv = M(wv, s0 * .1, d); hv = M(hv, s0 * .1, d); r = M(r, s0 * .05, d);
+  box(o.shape, cw / 2 - wv / 2, ch / 2 - hv / 2, wv, hv); o.shape.style.borderRadius = r + 'px';
+  o.shape.style.transform = `rotate(${rot}deg)`;
+  o.shape.style.fontSize = (s0 * .085) + 'px'; o.shape.textContent = c > .6 && d < .3 ? 'motion design' : '';
+  o.shape.style.opacity = 1;
+  o.fill.style.width = (100 * C(t / 4.4)) + '%'; o.tm.textContent = `0:0${Math.min(9, Math.floor(t))}`;
+}
+
+/* ===== A' · mur de vidéos courbé (tes propres films) ===== */
+const TCOUNT = [162,150,162,162,150,162,162,162,162,162,162,162,162,162,162,162,162,135,162,162,162,162,162,162,162,162,162,162,162,162,162,162,131,162,162,162,162,162,162,162,162,162];
+const wall = el('div', 'a', cam, '', 'left:960px;top:540px;width:0;height:0;perspective:2300px;z-index:9');
+const wallIn = el('div', 'a', wall, '', 'left:0;top:0;width:0;height:0;transform-style:preserve-3d');
+const TW = 400, TH = 225, TG = 22, WR = 2300, COLS = 15, ROWS = 4;
+const DTH = (TW + TG) / WR;
+const wTiles = [];
+for (let r = 0; r < ROWS; r++) for (let k = 0; k < COLS; k++) {
+  const id = ((r + k) % 2 === 0) ? 31 + ((r * 5 + k * 3) % 11) : (r * 7 + k * 3) % 31;
+  const e = el('div', 'a', wallIn, '', `left:${-TW / 2}px;top:${-TH / 2}px;width:${TW}px;height:${TH}px;border-radius:16px;overflow:hidden;background:#ddd;box-shadow:0 20px 40px -24px rgba(0,0,0,.35);backface-visibility:hidden`);
+  const im = el('img', '', e, '', 'width:100%;height:100%;object-fit:cover;display:block');
+  wTiles.push({ e, im, r, k, id, src: '' });
+}
+const capA1 = cap('Des vidéos en *motion design*', 494, 64, [0.96, 1.2, 1.44, 1.76], 3.0);
+const capA2 = cap('comme les *grandes marques.*', 494, 64, [3.12, 3.28, 3.84, 4.08], 4.35);
+const capBack = el('div', 'a', cam, '', 'left:440px;top:455px;width:1040px;height:150px;border-radius:75px;background:rgba(245,245,242,.94);box-shadow:0 30px 60px -30px rgba(0,0,0,.35);z-index:15');
+capA1.d.style.zIndex = 16; capA2.d.style.zIndex = 16;
+const wallLoads = [];
+function animWall(t) {
+  const on = t < 5.3; vis(wall, on); vis(capBack, on && t < 4.75); if (!on) return;
+  const fold = E.i3(P(t, 4.45, .7));
+  wallIn.style.transform = `scale(${1 - .55 * fold}) translateZ(${-fold * 900}px)`;
+  wall.style.opacity = 1 - C((t - 4.9) / .3);
+  const cb = spring(t - .7, 200, 26) * (1 - E.i3(P(t, 4.45, .3)));
+  capBack.style.transform = `scale(${cb})`;
+  wTiles.forEach((o) => {
+    const dir = o.r % 2 ? -1 : 1;
+    const scroll = dir * (t * .09 + fold * 1.2);
+    let th = (o.k - (COLS - 1) / 2) * DTH + scroll;
+    const span = COLS * DTH; th = ((th + span / 2) % span + span) % span - span / 2;
+    const y = (o.r - (ROWS - 1) / 2) * (TH + TG) * (1 - .7 * fold);
+    const visT = Math.abs(th) < .95; o.e.style.visibility = visT ? 'inherit' : 'hidden';
+    o.e.style.transform = `translate3d(0,${y}px,${WR}px) rotateY(${th}rad) translate3d(0,0,${-WR}px)`;
+    const n = TCOUNT[o.id]; const fi = (Math.floor(t * 30) % n) + 1; const src = `tiles/t${String(o.id).padStart(2, '0')}/${String(fi).padStart(3, '0')}.jpg`;
+    if (visT && o.src !== src) { o.src = src; o.im.src = src; wallLoads.push(o.im); }
+  });
+}
+
+/* ================= B · les obstacles (4,6 – 12,4) ================= */
+const OB = [['Maîtriser After Effects', 6.24], ['Des mois à apprendre', 7.2], ['Un ordinateur ultra puissant', 9.04]];
+const OBW = 460, OBH = 360;
+const obs = OB.map(([title], i) => {
+  const c = el('div', 'w', cam, '', `width:${OBW}px;height:${OBH}px;z-index:10`);
+  el('div', 'a', c, title, `left:${i === 0 ? 74 : 26}px;top:22px;font:500 24px U;letter-spacing:-.01em`);
+  if (i === 0) el('img', 'a', c, '', 'left:24px;top:16px;width:40px;height:40px').src = IMG + 'ae.png';
+  const body = el('div', 'a', c, '', 'left:22px;top:72px;right:22px;bottom:22px;border-radius:16px;background:#f6f6f3;overflow:hidden');
+  return { c, body, t: OB[i][1] };
+});
+// 1 · timeline à keyframes
+const kfRows = []; for (let r = 0; r < 6; r++) { const rw = el('div', 'a', obs[0].body, '', `left:14px;right:14px;top:${18 + r * 40}px;height:24px`); el('div', 'a', rw, '', 'left:0;top:9px;width:50px;height:6px;border-radius:3px;background:#dcdcd7'); el('div', 'a', rw, '', 'left:66px;right:0;top:11px;height:2px;background:#e6e6e2'); const ds = []; const rnd = mulberry32(r + 3); for (let k = 0; k < 9; k++) ds.push(el('div', 'a', rw, '', `left:${70 + rnd() * 300}px;top:5px;width:12px;height:12px;background:${INK};transform:rotate(45deg) scale(0);border-radius:2px`)); kfRows.push(ds); }
+const kfHead = el('div', 'a', obs[0].body, '', `top:0;bottom:0;width:2px;background:${BLUE}`);
+// 2 · mois qui défilent
+const MONTHS = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin'];
+const calTop = el('div', 'a', obs[1].body, '', `left:50%;top:22px;width:200px;margin-left:-100px;height:34px;border-radius:12px 12px 0 0;background:${INK}`);
+const calPage = el('div', 'a', obs[1].body, '', 'left:50%;top:56px;width:200px;margin-left:-100px;height:150px;border-radius:0 0 12px 12px;background:#fff;box-shadow:0 0 0 1px #e6e6e2;overflow:hidden');
+const calTxt = el('div', 'a', calPage, '', 'left:0;right:0;top:46px;text-align:center;font:500 34px U;letter-spacing:-.02em');
+const calBar = el('div', 'a', obs[1].body, '', 'left:30px;right:30px;bottom:26px;height:6px;border-radius:3px;background:#e6e6e2');
+const calFill = el('div', 'a', calBar, '', `left:0;top:0;bottom:0;border-radius:3px;background:${INK}`);
+// 3 · jauge de puissance
+el('div', 'a', obs[2].body, `<svg width="150" height="110" viewBox="0 0 150 110"><rect x="18" y="8" width="114" height="74" rx="8" fill="none" stroke="${INK}" stroke-width="5"/><path d="M4 92h142l-10 10H14z" fill="${INK}"/></svg>`, 'left:50%;top:22px;margin-left:-75px');
+const gBar = el('div', 'a', obs[2].body, '', 'left:30px;right:30px;bottom:52px;height:14px;border-radius:7px;background:#e6e6e2;overflow:hidden');
+const gFill = el('div', 'a', gBar, '', `left:0;top:0;bottom:0;border-radius:7px`);
+const gLab = el('div', 'a', obs[2].body, 'Puissance requise', `left:30px;bottom:18px;font:500 15px U;color:${GREY}`);
+const strikes = obs.map((o) => el('div', 'a', o.c, '', `left:22px;right:22px;top:50%;height:6px;border-radius:3px;background:${BLUE};transform-origin:0 50%;z-index:3`));
+const capNow = cap('Plus *maintenant.*', 500, 96, [11.04, 11.92], 12.45);
+
+/* ================= C · Claude Opus 5.5 (12,4 – 19,4) ================= */
+const CMP = { x: 510, y: 690, w: 900, h: 104 };
+const glow = el('div', 'a', cam, '', `border-radius:64px;filter:blur(18px);z-index:19`);
+const cmp = el('div', 'a', cam, '', `background:#fff;border-radius:52px;box-shadow:0 0 0 1px rgba(14,14,16,.08);overflow:hidden;z-index:20`);
+const chip = el('div', 'a line', cmp, '<span>Claude Opus 5.5</span>', `left:22px;top:30px;height:44px;padding:0 18px;border-radius:22px;background:#f0f0ec;font:500 20px/44px U`);
+const typed = el('div', 'a', cmp, '', 'left:250px;top:36px;font:500 26px/32px U;white-space:pre');
+const ph = el('div', 'a', cmp, 'Décris ton animation…', `left:250px;top:36px;font:500 26px/32px U;color:#a8a8a4`);
+const caret = el('div', 'a', cmp, '', `top:38px;width:2.5px;height:30px;background:${BLUE}`);
+const send = el('div', 'a', cmp, `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5.5 11.5L12 5l6.5 6.5"/></svg>`, `right:20px;top:22px;width:60px;height:60px;border-radius:30px;background:${BLUE};display:flex;align-items:center;justify-content:center`);
+const PROMPT = 'Anime ce logo en motion design, sans keyframe';
+const rnd2 = mulberry32(9); const KEYS = []; { let t = 14.45; for (let i = 0; i < PROMPT.length; i++) { KEYS.push(t); t += .036 + rnd2() * .026 + (PROMPT[i] === ' ' ? .02 : 0); } }
+const prev = miniPlayer(900, 440); prev.card.style.zIndex = 18;
+const pvImg = el('img', '', prev.canv, '', 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:2'); let pvSrc = '';
+const prevTag = el('div', 'a', prev.card, '<span style="display:inline-block;width:8px;height:8px;border-radius:4px;background:#22c55e;margin-right:8px;vertical-align:1px"></span>Animation générée', `left:28px;top:28px;padding:8px 14px;border-radius:999px;background:#fff;box-shadow:0 0 0 1px #e6e6e2;font:500 15px U;z-index:3`);
+
+/* ================= D · MaMarque + la vraie carte (19,4 – 24,1) ================= */
+const flood = el('div', 'a', cam, '', `background:${BLUE};border-radius:50%;z-index:40`);
+const LG = { h: 110 }; LG.w = LG.h * 277 / 85;
+const logo = el('img', 'a', cam, '', `height:${LG.h}px;z-index:41;transform-origin:0 0`); logo.src = IMG + 'logo-noir.svg';
+// carte de formation (composant réel CourseCard : rayon 35, image en retrait 15 px rayon 20)
+const CC = { w: 520 };
+const course = el('div', 'a', cam, `
+ <div class="a" style="left:15px;top:15px;width:490px;height:276px;border-radius:20px;overflow:hidden"><img src="${IMG}c_motion.jpg" style="width:100%;height:100%;object-fit:cover"></div>
+ <div class="a" style="left:22px;top:310px;right:22px;font:600 27px U;letter-spacing:-.02em;white-space:nowrap">Motion Design Opus 5.5</div>
+ <div class="a" style="left:22px;top:352px;right:22px;font:500 18px/26px U;color:#6f6f6b;height:52px;overflow:hidden">Un programme qui vous montre de façon simple, comment faire du montage vidéo avec claude opus 5.5</div>
+ <div class="a" style="left:22px;right:22px;top:424px;display:flex;justify-content:space-between;font:500 16px U;color:#6f6f6b"><span style="display:flex;gap:7px;align-items:center">${svgI('layers', 17)}1 module</span><span style="display:flex;gap:7px;align-items:center">${svgI('file', 17)}4 chapitres</span></div>
+ <div class="a" style="left:22px;right:22px;top:460px;height:1px;background:#ececE8"></div>
+ <div class="a" style="left:22px;top:480px;display:flex;align-items:baseline;gap:12px"><span style="font:600 36px U;letter-spacing:-.02em">29 €</span><span style="font:500 19px U;color:#a8a8a4;text-decoration:line-through">97 €</span></div>
+ <div class="a" style="right:22px;top:484px;padding:5px 10px;border-radius:7px;background:rgba(16,185,129,.1);box-shadow:inset 0 0 0 1px rgba(16,185,129,.22);color:${EMER};font:600 15px U">−70 %</div>
+ <div class="a cbtn" style="left:15px;right:15px;top:540px;height:56px;border-radius:28px;background:${BLUE};color:#fff;display:flex;align-items:center;justify-content:center;gap:8px;font:500 19px U">Voir la formation ${svgI('arrow', 18, '#fff', 2.4)}</div>`, `width:${CC.w}px;height:612px;border-radius:35px;background:#fff;box-shadow:0 0 0 1px rgba(14,14,16,.06),0 40px 80px -40px rgba(14,30,60,.35);z-index:30`);
+const lvl = el('div', 'a', course, `${ICK(EMER, 14)}Niveau débutant`, `right:28px;top:28px;padding:7px 12px;border-radius:999px;background:#fff;color:${EMER};font:600 15px U;display:flex;gap:6px;align-items:center;transform-origin:100% 0`);
+const capD = cap('Une formation *complète.*', 150, 64, [99, 99], 99);
+
+/* ================= E · parcours, module par module (24,1 – 29,4) ================= */
+const MOD = { w: 820, h: 500 };
+const mod = el('div', 'w', cam, '', `width:${MOD.w}px;height:${MOD.h}px;z-index:29`);
+el('div', 'a', mod, '<span>Montage Vidéo short et Youtube</span>', 'left:28px;top:26px;font:600 24px U;letter-spacing:-.01em;white-space:nowrap');
+el('div', 'a', mod, '4 chapitres', `left:28px;top:60px;font:500 16px U;color:${GREY}`);
+const chev = el('div', 'a', mod, svgI('chev', 22, INK, 2.2), 'right:28px;top:34px;transform-origin:50% 50%');
+const CHAP = [['Pré requis à faire sur claude code', 24.64], ['Inspiration & organisation des dossiers', 25.2], ['Application pour sortir la première vidéo', 25.99], ['Récupérez les bonus ici', 27.48]];
+const chRows = CHAP.map(([s], i) => el('div', 'row', mod, `<span class="pi" style="color:${BLUE};display:flex">${svgI('play', 24, BLUE, 1.8)}</span><span style="font:500 19px U;overflow:hidden;text-overflow:ellipsis">${s}</span><span class="ck" style="margin-left:auto;background:#f0f0ec"></span>`, `left:22px;right:22px;top:${104 + i * 66}px;height:56px;padding:0 16px;border-radius:16px;background:#f7f7f4`));
+const mod2 = el('div', 'row', mod, '<span style="font:600 20px U">Motion Design de Saas</span><span style="margin-left:auto;display:flex">' + svgI('chev', 20, INK, 2.2) + '</span>', `left:22px;right:22px;top:${104 + 4 * 66 + 10}px;height:58px;padding:0 18px;border-radius:16px;box-shadow:inset 0 0 0 1px #ececE8`);
+const capE = cap('Étape par *étape.*', 150, 64, [24.64, 25.04], 25.6);
+const capE2 = cap('Démonstrations, ressources, *modèles.*', 150, 64, [25.99, 27.48, 28.2], 29.35);
+
+/* ================= F · ce que tu sauras faire (29,4 – 35,1) ================= */
+const SKL = [['Maîtriser les fondamentaux de Motion Design Opus 5.5', 29.9], ['Appliquer une méthode concrète, étape par étape', 30.68], ['Réaliser tes premiers projets en autonomie', 31.72], ['Proposer cette compétence à tes premiers clients', 34.2]];
+const skl = el('div', 'w', cam, '', 'z-index:29');
+el('div', 'a', skl, 'Ce que tu sauras faire', 'left:30px;top:28px;font:600 26px U;letter-spacing:-.01em;white-space:nowrap');
+const sRows = SKL.map(([s], i) => el('div', 'row', skl, `<span class="ck sk" style="background:#f0f0ec;width:34px;height:34px;border-radius:17px"></span><span style="font:500 24px U">${s}</span>`, `left:28px;right:28px;top:${96 + i * 84}px;height:68px;padding:0 20px;border-radius:18px;gap:18px`));
+const capF = cap('Tes propres *publicités animées.*', 150, 64, [29.72, 30.44, 30.92, 31.24, 31.72], 32.2);
+const capF2 = cap('Tes produits. *Tes clients.*', 150, 64, [32.36, 33.0, 34.2, 34.76], 35.1);
+const fMini = miniPlayer(300, 300); fMini.card.style.zIndex = 31;
+
+/* ===== F' · ce que tu pourras créer ===== */
+function vidCard(w, h, r, dir, n) { const c = el('div', 'a', cam, '', `width:${w}px;height:${h}px;border-radius:${r}px;background:#fff;padding:10px;box-shadow:0 0 0 1px rgba(14,14,16,.06),0 40px 80px -40px rgba(14,30,60,.4);z-index:32`); const im = el('img', '', c, '', `width:100%;height:100%;object-fit:cover;border-radius:${r - 8}px;display:block`); return { c, im, dir, n, src: '' }; }
+const vPhone = vidCard(330, 620, 46, 'vphone', 180), vProd = vidCard(430, 430, 34, 'vprod', 108), vClient = vidCard(560, 330, 30, 'vclient', 84);
+const vTags = [['Publicité animée', vPhone], ['Présentation produit', vProd], ['Vidéo pour un client', vClient]].map(([s, o]) => el('div', 'a', o.c, s, `left:50%;bottom:-54px;transform:translateX(-50%);padding:8px 16px;border-radius:999px;background:#fff;box-shadow:0 0 0 1px #e6e6e2;font:500 18px U;white-space:nowrap`));
+const notif = el('div', 'a', vClient.c, `<span style="width:38px;height:38px;border-radius:12px;background:${BLUE};display:flex;align-items:center;justify-content:center;flex:none">${ICK('#fff', 18, 2.6)}</span><span><span style="display:block;font:600 17px U">Nouveau client</span><span style="display:block;font:500 14px U;color:${GREY}">Brief vidéo reçu</span></span>`, 'right:-40px;top:-34px;display:flex;gap:12px;align-items:center;padding:12px 18px 12px 12px;border-radius:20px;background:#fff;box-shadow:0 20px 40px -20px rgba(14,30,60,.4);white-space:nowrap;transform-origin:100% 0');
+function playVid(o, t, t0) { const fi = C(Math.floor((t - t0) * 30) + 1, 1, o.n); const src = `${o.dir}/${String(fi).padStart(3, '0')}.jpg`; if (src !== o.src) { o.src = src; o.im.src = src; wallLoads.push(o.im); } }
+
+/* ===== G' · prix, disponibilité, accès ===== */
+const pLabel = el('div', 'a line', cam, '<span>Motion Design Opus 5.5</span>', `left:0;width:1920px;text-align:center;top:250px;font:500 34px U;color:${GREY}`);
+const p29 = el('div', 'a line', cam, '<span>29 €</span>', `left:0;top:300px;font:500 230px/1.05 U;letter-spacing:-.05em`);
+const p97 = el('div', 'a', cam, '97 €', `top:390px;font:500 84px U;color:#b4b4b0;letter-spacing:-.03em`);
+const p97s = el('div', 'a', cam, '', `height:7px;border-radius:4px;background:${BLUE};transform-origin:0 50%`);
+const pDisc = el('div', 'a', cam, '−70 %', `top:300px;padding:9px 16px;border-radius:12px;background:rgba(16,185,129,.12);color:${EMER};font:600 30px U;transform-origin:0 100%`);
+const dispo = el('div', 'a', cam, `<span style="width:12px;height:12px;border-radius:6px;background:#22c55e;display:inline-block"></span>Disponible maintenant`, `top:596px;display:flex;gap:12px;align-items:center;padding:12px 22px;border-radius:999px;background:#fff;box-shadow:0 0 0 1px #e6e6e2;font:500 24px U;white-space:nowrap`);
+const PILLS = [['Paiement unique', 37.67], ['Accès à vie', 38.71], ['Certificat inclus', 39.1]];
+const gPills = PILLS.map(([s]) => el('div', 'a', cam, `<span class="ck" style="width:30px;height:30px;background:${BLUE}">${ICK('#fff', 16, 2.6)}</span>${s}`, `top:690px;display:flex;gap:12px;align-items:center;padding:12px 24px 12px 14px;border-radius:999px;background:#eaf6ff;font:500 26px U;white-space:nowrap;transform-origin:50% 50%`));
+const CTA2 = { w: 540, h: 92 };
+const cta2 = el('div', 'a', cam, '', `width:${CTA2.w}px;height:${CTA2.h}px;border-radius:46px;background:${BLUE};color:#fff;overflow:hidden;z-index:30`);
+el('div', 'a', cta2, `Je rejoins la formation ${svgI('arrow', 24, '#fff', 2.4)}`, 'left:0;right:0;top:0;bottom:0;display:flex;align-items:center;justify-content:center;gap:12px;font:500 28px U;white-space:nowrap');
+const ssl2 = el('div', 'a', cam, `${svgI('lock', 16, GREY, 2)}Paiement sécurisé SSL`, `top:930px;left:0;width:1920px;display:flex;justify-content:center;gap:8px;align-items:center;font:500 18px U;color:${GREY}`);
+
+/* ================= G · la vraie carte d'achat (35,1 – 41,9) ================= */
+const BC = { w: 560, h: 760 };
+const buyC = el('div', 'w', cam, `
+ <div class="a" style="left:0;top:0;width:560px;height:315px;overflow:hidden"><img src="${IMG}c_motion.jpg" style="width:100%;height:100%;object-fit:cover"><div class="a" style="left:50%;top:50%;width:76px;height:76px;margin:-38px 0 0 -38px;border-radius:38px;background:rgba(255,255,255,.25);box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.7);display:flex;align-items:center;justify-content:center"><svg width="26" height="26" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" fill="#fff"/></svg></div></div>
+ <div class="a" style="left:30px;top:340px;display:flex;align-items:baseline;gap:14px"><span id="bp" style="font:600 52px U;letter-spacing:-.03em">29 €</span><span style="font:500 24px U;color:#a8a8a4;text-decoration:line-through">97 €</span></div>
+ <div class="a chipD" style="left:30px;top:412px;padding:7px 13px;border-radius:999px;background:rgba(16,185,129,.1);color:${EMER};font:600 17px U;transform-origin:0 50%">−70 % de réduction aujourd'hui</div>`, `width:${BC.w}px;height:${BC.h}px;z-index:28`);
+const BL = ['Accès à vie', 'Niveau débutant', 'Certificat inclus'];
+const bRows = BL.map((s, i) => el('div', 'row', buyC, `<span class="ck bk" style="width:26px;height:26px;box-shadow:inset 0 0 0 1.6px ${BLUE};color:${BLUE}">${ICK(BLUE, 14, 2.6)}</span><span style="font:500 20px U">${s}</span>`, `left:30px;right:30px;top:${470 + i * 46}px;height:36px;gap:12px`));
+const cta = el('div', 'a', buyC, '', `left:30px;top:626px;width:420px;height:64px;border-radius:32px;background:${BLUE};color:#fff;overflow:hidden`);
+const ctaLab = el('div', 'a', cta, `Je rejoins la formation ${svgI('arrow', 20, '#fff', 2.4)}`, 'left:0;right:0;top:0;bottom:0;display:flex;align-items:center;justify-content:center;gap:10px;font:500 21px U;white-space:nowrap');
+el('div', 'a', buyC, svgI('cart', 24, INK, 2), 'left:466px;top:626px;width:64px;height:64px;border-radius:32px;box-shadow:inset 0 0 0 1.5px #e2e2de;display:flex;align-items:center;justify-content:center');
+const ssl = el('div', 'a', buyC, `${svgI('lock', 15, GREY, 2)}Paiement sécurisé SSL`, `left:0;right:0;top:708px;display:flex;justify-content:center;gap:8px;align-items:center;font:500 16px U;color:${GREY}`);
+const capG = cap('x', 150, 64, [99], 99);
+const capG2 = cap('x', 150, 64, [99], 99);
+const capH = cap('Prêt à créer tes premières *animations ?*', 150, 64, [40.23, 40.47, 40.63, 40.79, 41.03, 41.27], 41.9);
+const cursor = el('div', 'a', cam, `<svg width="30" height="30" viewBox="0 0 24 24"><path d="M4 2.5l15.5 9.2-6.9 1.4 3.9 7.3-3 1.6-3.9-7.4L4.9 19z" fill="#fff" stroke="#0e0e10" stroke-width="1.5" stroke-linejoin="round"/></svg>`, 'z-index:90;transform-origin:0 0');
+
+/* ================= H · page bleue + fin (41,9 – 47,4) ================= */
+const page = el('div', 'a', cam, '', `background:${BLUE};z-index:60`);
+const over = document.getElementById('over'); over.style.cssText = `position:absolute;inset:0;z-index:70;visibility:hidden;overflow:hidden;color:#fff;transform-origin:960px 540px`;
+const oLab = el('div', 'a', over, 'Je rejoins la formation', 'left:0;top:0;font:500 21px U;white-space:nowrap');
+const H1 = cap('Motion Design Opus 5.5', 360, 112, [42.63, 42.95, 43.43, 43.75], 45.05, '#fff', over);
+const H2 = cap('dès maintenant sur', 520, 40, [44.45, 44.6, 44.75], 45.05, 'rgba(255,255,255,.82)', over);
+const endPill = el('div', 'a', over, '', 'background:#fff;border-radius:999px;overflow:hidden;box-shadow:0 30px 60px -30px rgba(0,40,90,.45)');
+const endLogo = el('img', 'a', endPill, '', 'height:64px;left:50%;top:50%'); endLogo.src = IMG + 'logo-noir.svg';
+const endUrl = cap('mamarque.site', 800, 44, [99], 99, '#fff', over);
+const endBg = el('div', 'a', over, '', 'left:0;top:0;width:1920px;height:1080px;background:#f5f5f2;z-index:-1');
+const bar = el('div', 'a', over, '', `background:${BLUE};overflow:hidden;z-index:5`);
+const barLock = el('div', 'a', bar, svgI('lock', 26, GREY, 2), 'left:34px;top:37px');
+const barTxt = el('div', 'a', bar, '', `left:78px;top:30px;font:500 40px/44px U;color:${INK};white-space:pre;letter-spacing:-.01em`);
+const barCaret = el('div', 'a', bar, '', `top:34px;width:3px;height:38px;background:${BLUE}`);
+const barGo = el('div', 'a', bar, `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>`, `right:14px;top:14px;width:76px;height:76px;border-radius:38px;background:${BLUE};display:flex;align-items:center;justify-content:center`);
+const endLogo2 = el('img', 'a', over, '', 'height:120px;z-index:6'); endLogo2.src = IMG + 'logo-noir.svg';
+const URLK = [46.0, 46.06, 46.12, 46.18, 46.24, 46.3, 46.36, 46.42, 46.48, 46.54, 46.6];
+
+/* ===== caméra : [t, zoom, x, y], zoom en log, un mouvement par scène ===== */
+const CAM = [[0, 1.22, 960, 520], [3.2, 1.08, 960, 520], [4.6, 1.0, 960, 540], [10.9, 1.06, 960, 540], [12.6, 1.0, 960, 560], [16.4, 1.28, 960, 700], [17.3, 1.02, 960, 560], [20.4, 1.06, 960, 560], [20.5, 1.06, 960, 560], [23.9, 1.12, 960, 560], [24.6, 1.02, 960, 560], [29.3, 1.08, 960, 560], [35.0, 1.12, 960, 560], [35.7, 1.0, 960, 590], [41.95, 1.08, 960, 600], [42.75, 3.4, 0, 0], [DUR, 3.4, 0, 0]];
+let CTAW = { x: 0, y: 0 };
+function camAt(t) { const K = CAM.map((k) => (k[3] === 0 && k[2] === 0 ? [k[0], k[1], CTAW.x, CTAW.y] : k)); let i = 0; while (i < K.length - 2 && t >= K[i + 1][0]) i++; const [a, z0, x0, y0] = K[i], [b, z1, x1, y1] = K[i + 1]; const e = E.io(C((t - a) / (b - a))); return { z: Math.exp(M(Math.log(z0), Math.log(z1), e)), x: M(x0, x1, e), y: M(y0, y1, e) }; }
+
+/* ================= SEEK ================= */
+function seek(t) {
+  const K = camAt(t);
+  cam.style.transform = `translate(960px,540px) scale(${K.z}) translate(${-K.x}px,${-K.y}px)`;
+  CAPS.forEach((o) => animCap(o, t));
+
+  /* A */
+  animWall(t);
+  const split = spring(t - 3.28, 170, 24), toObs = E.qio(P(t, 4.6, .8));
+  const LAYA = [{ x: 960, y: 520, w: 960, h: 600 }, { x: 960, y: 520, w: 960, h: 600 }, { x: 960, y: 520, w: 960, h: 600 }];
+  const LAYB = [{ x: 560, y: 520, w: 600, h: 380 }, { x: 1010, y: 520, w: 260, h: 460 }, { x: 1440, y: 520, w: 400, h: 400 }];
+  const LAYC = [{ x: 455, y: 520, w: OBW, h: OBH }, { x: 960, y: 520, w: OBW, h: OBH }, { x: 1465, y: 520, w: OBW, h: OBH }];
+  PL.forEach((o, i) => {
+    const on = false; vis(o.card, on); vis(fmtTag[i], false); if (!on) return;
+    const L = { x: M(LAYA[i].x, LAYB[i].x, split), y: M(LAYA[i].y, LAYB[i].y, split), w: M(LAYA[i].w, LAYB[i].w, split), h: M(LAYA[i].h, LAYB[i].h, split) };
+    const L2 = { x: M(L.x, LAYC[i].x, toObs), y: M(L.y, LAYC[i].y, toObs), w: M(L.w, LAYC[i].w, toObs), h: M(L.h, LAYC[i].h, toObs) };
+    box(o.card, L2.x - L2.w / 2, L2.y - L2.h / 2, L2.w, L2.h); o.card.style.opacity = 1 - C((t - 5.1) / .25);
+    playMini(o, t, i * .25);
+    const tg = fmtTag[i]; const tp = spring(t - (3.6 + i * .12), 260, 22) * (1 - E.i3(P(t, 4.6, .3)));
+    tg.style.left = (L2.x - tg.offsetWidth / 2) + 'px'; tg.style.top = (L2.y + L2.h / 2 + 18) + 'px'; tg.style.transform = `scale(${tp})`;
+  });
+
+  /* B */
+  obs.forEach((o, i) => {
+    const on = t >= 5.0 && t < 12.3; vis(o.c, on); if (!on) return;
+    const L = LAYC[i]; const act = t >= o.t && (i === 2 || t < obs[i + 1].t);
+    const a = spring(t - o.t, 200, 24) * (act ? 1 : 0) - (i < 2 && t >= obs[i + 1].t ? 0 : 0);
+    const fold = E.qio(P(t, 11.0 + i * .06, .6)), mergeX = E.qio(P(t, 11.25, .8));
+    const cx = M(L.x, 960, mergeX), cy = M(L.y, 380, mergeX);
+    const w = M(OBW, 24, fold), h = M(OBH, 24, fold);
+    box(o.c, cx - w / 2, cy - h / 2, w, h); o.c.style.borderRadius = M(28, 12, fold) + 'px';
+    o.c.style.background = fold > .7 ? BLUE : '#fff';
+    const oin = spring(t - (4.95 + i * .1), 200, 24); o.c.style.opacity = C((t - 4.95 - i * .1) / .2);
+    const nx = i < 2 ? obs[i + 1].t : 99; const lift = spring(t - o.t, 220, 24) - spring(t - nx, 220, 24); const sc = 1 + .05 * lift;
+    o.c.style.transform = `scale(${sc * M(.85, 1, oin)}) translateY(${-14 * lift + (1 - oin) * 120}px)`;
+    o.c.firstChild.style.opacity = 1 - C(fold * 3); o.body.style.opacity = M(.55, 1, C((t - o.t) / .25)) * (1 - C(fold * 3));
+    const st = E.o3(P(t, 11.04 + i * .1, .3)); strikes[i].style.transform = `scaleX(${st})`; strikes[i].style.opacity = 1 - C(fold * 3);
+  });
+  // contenus vivants des obstacles
+  kfRows.forEach((ds, r) => ds.forEach((d, k) => { const p = spring(t - (6.2 + r * .09 + k * .05), 300, 22); d.style.transform = `rotate(45deg) scale(${p})`; }));
+  kfHead.style.left = (14 + 66 + (t * 140) % 330) + 'px';
+  const mi = Math.min(5, Math.floor(C((t - 7.2) / 2.6) * 6)); calTxt.textContent = MONTHS[mi];
+  calTxt.style.transform = `translateY(${-30 * Math.max(0, 1 - ((t - 7.2) % (2.6 / 6)) / .12)}px)`; calFill.style.width = (100 * C((t - 7.2) / 2.8)) + '%';
+  const gp = E.io(P(t, 9.1, 1.4)); gFill.style.width = (100 * M(.2, .97, gp)) + '%'; gFill.style.background = gp > .7 ? '#ff6a2a' : INK;
+
+  /* C : le point devient la barre de saisie */
+  const cOn = t >= 12.3 && t < 21.0;
+  const grow = E.qio(P(t, 12.45, .8));
+  const r0 = { x: 960 - 12, y: 380 - 12, w: 24, h: 24 };
+  const R = { x: M(r0.x, CMP.x, grow), y: M(r0.y, CMP.y, grow), w: M(r0.w, CMP.w, grow), h: M(r0.h, CMP.h, grow) };
+  vis(cmp, cOn); vis(glow, cOn && grow > .3);
+  box(cmp, R.x, R.y, R.w, R.h); cmp.style.borderRadius = R.h / 2 + 'px'; cmp.style.background = grow < .5 ? BLUE : '#fff';
+  box(glow, R.x - 14, R.y - 14, R.w + 28, R.h + 28);
+  glow.style.background = `conic-gradient(from ${t * 140}deg,#ff7eb6,#ff9a3c,#ffd23f,#38d6ff,#a78bfa,#ff7eb6)`; glow.style.opacity = .9 * C((grow - .3) * 2) * (1 - C((t - 20.3) / .3));
+  [chip, typed, ph, caret, send].forEach((e) => (e.style.opacity = C((grow - .7) / .3)));
+  chip.firstChild.style.transform = `translateY(${(1 - E.o4(P(t, 12.96, .5))) * 120}%)`;
+  const n = KEYS.filter((k) => t >= k).length; typed.textContent = PROMPT.slice(0, n); vis(ph, n === 0 && grow > .9);
+  caret.style.left = (250 + typed.offsetWidth + 2) + 'px'; vis(caret, t > 13.4 && t < 16.6 && (Math.floor(t * 3) % 2 === 0 || (t > KEYS[0] && t < KEYS[KEYS.length - 1] + .1)));
+  send.style.transform = `scale(${t >= 16.55 && t < 16.75 ? 1 - .14 * Math.sin(Math.PI * (t - 16.55) / .2) : 1})`;
+  // aperçu généré qui sort du bouton d'envoi
+  const pv = spring(t - 16.65, 170, 24);
+  vis(prev.card, t >= 16.6 && t < 21.0);
+  const pw = M(60, 900, pv), phh = M(60, 440, pv), px = M(CMP.x + CMP.w - 50, 960, pv), py = M(CMP.y + 52, 410, pv);
+  box(prev.card, px - pw / 2, py - phh / 2, pw, phh); prev.card.style.borderRadius = M(30, 28, pv) + 'px';
+  prev.canv.style.opacity = C((pv - .6) / .3); prevTag.style.opacity = C((t - 17.1) / .3);
+  if (t >= 16.6) { const fi = C(Math.floor((t - 16.75) * 30) + 1, 1, 144); const src = `pv/${String(fi).padStart(3, '0')}.jpg`; if (src !== pvSrc) { pvSrc = src; pvImg.src = src; wallLoads.push(pvImg); } }
+
+  /* D : inondation depuis l'aperçu -> logo -> vraie carte */
+  const fOn = t >= 20.48 && t < 21.4; vis(flood, fOn);
+  const fc = { x: 960, y: 410 };
+  const LGI = { x: 960 - LG.w / 2 + LG.h / 2, y: 300 };
+  if (fOn) {
+    const vw = 960 / K.z, vh = 540 / K.z;
+    const far = Math.max(...[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([a, b2]) => Math.hypot(K.x + a * vw - fc.x, K.y + b2 * vh - fc.y))) * 1.05;
+    const g = E.o3(P(t, 20.48, .35)), c = E.qio(P(t, 20.85, .5));
+    const rr = M(M(20, far, g), LG.h / 2, c), cx = M(fc.x, LGI.x, c), cy = M(fc.y, LGI.y, c);
+    box(flood, cx - rr, cy - rr, 2 * rr, 2 * rr);
+  }
+  const lOn = t >= 21.33 && t < 24.6; vis(logo, lOn);
+  const wipe = E.qio(P(t, 21.35, .5)), ico = 85 / 277 * 100;
+  const lUp = E.qio(P(t, 21.85, .6));
+  logo.style.left = (960 - LG.w / 2) + 'px'; logo.style.top = (300 - LG.h / 2) + 'px';
+  logo.style.clipPath = `inset(0 ${(100 - ico) * (1 - wipe)}% 0 0)`;
+  logo.style.transform = `translateY(${-lUp * 125 - E.i3(P(t, 24.1, .4)) * 500}px) scale(${M(1, .72, lUp)})`; logo.style.transformOrigin = '50% 50%';
+
+  // carte : position selon la scène (centre -> gauche -> sortie)
+  const cIn = spring(t - 21.5, 170, 24), cLeft = E.qio(P(t, 24.15, .8)), cOut = E.qio(P(t, 29.3, .7));
+  const ccx = M(960, 560, cLeft) - cOut * 1100, ccy = 600 + (1 - cIn) * 700;
+  vis(course, t >= 21.4 && t < 30.1);
+  course.style.left = (ccx - CC.w / 2) + 'px'; course.style.top = (ccy - 306) + 'px';
+  course.style.transform = `scale(${M(1, .86, cLeft)}) rotate(${(1 - cIn) * 4}deg)`;
+  const lp = spring(t - 22.48, 260, 22); vis(lvl, t >= 22.48); lvl.style.transform = `scale(${lp})`;
+
+  /* E : module qui s'ouvre, chapitres qui se cochent */
+  const mOn = t >= 24.2 && t < 29.95; vis(mod, mOn);
+  const mIn = spring(t - 24.25, 170, 24), toSkl = E.qio(P(t, 29.35, .6));
+  const openH = M(96, MOD.h, E.qio(P(t, 24.35, .7)));
+  { const tp = E.qio(P(t, 29.35, .55)); const mx = M(1300 - MOD.w / 2 + (1 - mIn) * 600, 960 - 165, tp), my = M(600 - MOD.h / 2, 600 - 310, tp), mw = M(MOD.w, 330, tp), mh = M(openH, 620, tp); box(mod, mx, my, mw, mh); mod.style.borderRadius = M(28, 46, tp) + 'px'; [...mod.children].forEach((e) => (e.style.opacity = 1 - C(tp * 2.5))); }
+  chev.style.transform = `rotate(${180 * E.qio(P(t, 24.35, .5))}deg)`;
+  let curCh = -1; CHAP.forEach(([, t0], i) => { if (t >= t0) curCh = i; });
+  chRows.forEach((r, i) => {
+    const done = t >= CHAP[i][1]; const isCur = i === curCh;
+    r.style.background = isCur ? '#eaf6ff' : '#f7f7f4'; r.style.boxShadow = isCur ? `inset 0 0 0 1.5px ${BLUE}` : 'none';
+    const ck = r.querySelector('.ck'); ck.style.background = done ? BLUE : '#f0f0ec'; ck.innerHTML = done ? ICK('#fff', 15) : '';
+    const pp = spring(t - CHAP[i][1], 300, 22); ck.style.transform = `scale(${done ? .7 + .3 * pp : 1})`;
+  });
+  // « ressources » puis « modèles » mettent en avant le dernier chapitre
+  chRows[3].style.transform = `scale(${1 + .03 * spring(t - 28.2, 260, 22) * (t < 29.3 ? 1 : 0)})`;
+
+  /* F : le module devient « Ce que tu sauras faire » (même forme) */
+  const fOn2 = false; vis(skl, false);
+  const SR = { x: 960 - 470, y: 600 - 225, w: 940, h: 450 };
+  const sk = toSkl, gOut = E.qio(P(t, 35.05, .7));
+  const SR2 = { x: M(1300 - MOD.w / 2, SR.x, sk), y: M(600 - MOD.h / 2, SR.y, sk), w: M(MOD.w, SR.w, sk), h: M(MOD.h, SR.h, sk) };
+  box(skl, SR2.x, SR2.y, SR2.w, SR2.h); skl.style.opacity = C((t - 29.3) / .25) * (1 - gOut);
+  sRows.forEach((r, i) => { const t0 = SKL[i][1]; const done = t >= t0; const s = r.querySelector('.sk'); s.style.background = done ? BLUE : '#f0f0ec'; s.innerHTML = done ? ICK('#fff', 15) : ''; r.style.background = done && t < t0 + .9 ? '#eaf6ff' : 'transparent'; r.style.opacity = C((t - 29.5 - i * .08) / .3); });
+  // mini pub qui tourne à côté de la carte (publicités animées)
+  vis(fMini.card, false);
+  const fm = spring(t - 29.65, 200, 24), fo = E.i3(P(t, 35.0, .35));
+  box(fMini.card, 560 - 210, 600 - 210 + (1 - fm) * 80, 420, 420); fMini.card.style.transform = `scale(${fm * (1 - fo)}) rotate(${-4 + 4 * fm}deg)`;
+
+
+  /* G : la carte d'achat réelle */
+  const gOn = false; vis(buyC, false);
+  const gIn = spring(t - 35.27, 160, 24);
+  box(buyC, 960 - BC.w / 2, 655 - BC.h / 2 + (1 - gIn) * 800, BC.w, BC.h);
+  const chipD = buyC.querySelector('.chipD'); chipD.style.transform = `scale(${spring(t - 36.55, 260, 22)})`;
+  bRows.forEach((r, i) => { const t0 = [38.71, 36.9, 37.2][i]; const p = spring(t - t0, 260, 22); const bk = r.querySelector('.bk'); bk.style.background = t >= t0 ? BLUE : 'transparent'; bk.innerHTML = t >= t0 ? ICK('#fff', 14, 2.6) : ICK(BLUE, 14, 2.6); bk.style.transform = `scale(${t >= t0 ? .7 + .3 * p : 1})`; r.style.opacity = C((t - 35.9 - i * .1) / .3); });
+  ssl.style.color = t >= 37.67 ? INK : GREY; ssl.style.transform = `scale(${1 + .06 * Math.exp(-Math.max(0, t - 37.67) / .2) * (t >= 37.67 ? 1 : 0)})`;
+  // clic sur « Je rejoins la formation »
+  const click = 41.99;
+  const CUR = [[40.4, 1500, 1100], [41.85, CTAW.x + 60, CTAW.y + 8], [43, CTAW.x + 60, CTAW.y + 8]];
+  let ci = 0; while (ci < CUR.length - 2 && t >= CUR[ci + 1][0]) ci++; const [ta, xa, ya] = CUR[ci], [tb, xb, yb] = CUR[ci + 1], ce = E.io(C((t - ta) / (tb - ta)));
+  vis(cursor, t >= 40.4 && t < 42.3); const cs = t >= click && t < click + .18 ? 1 - .15 * Math.sin(Math.PI * (t - click) / .18) : 1;
+  cursor.style.left = M(xa, xb, ce) + 'px'; cursor.style.top = M(ya, yb, ce) + 'px'; cursor.style.transform = `scale(${cs / Math.max(1, K.z * .7)})`;
+  cta.style.transform = `scale(${t >= click && t < click + .2 ? 1 - .05 * Math.sin(Math.PI * (t - click) / .2) : 1})`;
+
+  /* F' : trois usages, trois vraies vidéos */
+  const fs1 = E.qio(P(t, 32.2, .7)), fs2 = E.qio(P(t, 33.4, .7)), fx = E.i3(P(t, 35.05, .5));
+  const onF = t >= 29.85 && t < 35.7; [vPhone, vProd, vClient].forEach((o) => vis(o.c, false));
+  if (onF) {
+    vis(vPhone.c, true); playVid(vPhone, t, 29.9);
+    const phx = M(960, 640, fs1) - 170 * fs2, phs = M(1, .92, fs1);
+    box(vPhone.c, phx - 165, 600 - 310 + fx * 900, 330, 620); vPhone.c.style.transform = `scale(${phs}) rotate(${-3 * fs1}deg)`;
+    if (t >= 32.15) { vis(vProd.c, true); playVid(vProd, t, 32.2); const pp = spring(t - 32.2, 170, 24); const pxx = M(1200, 950, fs2); box(vProd.c, pxx - 215, 600 - 215 + (1 - pp) * 700 + fx * 900, 430, 430); vProd.c.style.transform = `rotate(${(1 - pp) * 6 + 2 * fs2}deg)`; }
+    if (t >= 33.4) { vis(vClient.c, true); playVid(vClient, t, 33.45); const cp = spring(t - 33.45, 170, 24); box(vClient.c, 1470 - 260, 600 - 153 + (1 - cp) * 700 + fx * 900, 520, 306); vClient.c.style.transform = `rotate(${(1 - cp) * 6}deg)`; }
+    vTags.forEach((tg, i) => { tg.style.opacity = C((t - [30.95, 32.4, 33.6][i]) / .3); });
+    const np = spring(t - 34.2, 260, 22); notif.style.transform = `scale(${np})`; vis(notif, t >= 34.2);
+  }
+  /* G' : prix animé, disponibilité, pastilles, bouton */
+  const gOn2 = t >= 35.2 && t < 42.2; [pLabel, p29, p97, p97s, pDisc, dispo, ...gPills, cta2, ssl2].forEach((e) => vis(e, gOn2));
+  if (gOn2) {
+    rise(pLabel, t, 35.3); 
+    const pw = p29.offsetWidth; const tot = pw + 40 + p97.offsetWidth; const x0 = 960 - tot / 2;
+    p29.style.left = x0 + 'px'; rise(p29, t, 35.55, .6);
+    const a97 = spring(t - 35.3, 170, 24); p97.style.left = (x0 + pw + 40) + 'px'; p97.style.transform = `translateY(${(1 - a97) * 60}px)`; p97.style.opacity = C(a97 * 1.5);
+    const st = E.o3(P(t, 35.95, .35)); box(p97s, x0 + pw + 34, 444, (p97.offsetWidth + 12), 7); p97s.style.transform = `scaleX(${st})`;
+    pDisc.style.left = (x0 + pw + 40) + 'px'; pDisc.style.transform = `scale(${spring(t - 36.2, 260, 22)})`;
+    const dp = spring(t - 36.55, 220, 24); dispo.style.left = (960 - dispo.offsetWidth / 2) + 'px'; dispo.style.transform = `translateY(${(1 - dp) * 40}px) scale(${.9 + .1 * dp})`; dispo.style.opacity = C(dp * 1.5);
+    dispo.firstChild.style.transform = `scale(${1 + .35 * Math.abs(Math.sin((t - 36.55) * 3))})`;
+    const pwid = gPills.map((p) => p.offsetWidth); const ptot = pwid.reduce((a, b) => a + b, 0) + 24 * 2; let px0 = 960 - ptot / 2;
+    gPills.forEach((p, i) => { p.style.left = px0 + 'px'; px0 += pwid[i] + 24; const q = spring(t - PILLS[i][1], 260, 22); p.style.transform = `scale(${q})`; });
+    const cq = spring(t - 39.4, 170, 24); box(cta2, CTAW.x - CTA2.w / 2, CTAW.y - CTA2.h / 2 + (1 - cq) * 300, CTA2.w, CTA2.h); cta2.style.opacity = C(cq * 1.5);
+    cta2.style.transform = `scale(${t >= 41.99 && t < 42.19 ? 1 - .05 * Math.sin(Math.PI * (t - 41.99) / .2) : 1})`;
+    ssl2.style.opacity = C((t - 39.7) / .3);
+    vis(cta2, t < 42.05 && t >= 39.35); vis(ssl2, t >= 39.6 && t < 42.05);
+  }
+
+  /* H : le bouton devient la page bleue, puis se resserre en pastille blanche */
+  const pOn = t >= 42.05; vis(page, pOn && t < 43.0);
+  if (pOn) { const e = E.qio(P(t, 42.05, .75)); const vw = 1920 / K.z, vh = 1080 / K.z; const w = M(CTA2.w, vw * 1.7, e), h = M(CTA2.h, vh * 1.7, e); box(page, CTAW.x - w / 2, CTAW.y - h / 2, w, h); page.style.borderRadius = h / 2 + 'px'; }
+  vis(cta, t < 42.05);
+  const oOn = t >= 42.8; vis(over, t >= 42.05); over.style.background = oOn ? BLUE : 'transparent';
+  if (t >= 42.05) {
+    const sx = 960 + (CTAW.x - K.x) * K.z, sy = 540 + (CTAW.y - K.y) * K.z;
+    const g = E.io(P(t, 42.05, .8)), fs = M(28 * K.z, 64, g);
+    oLab.style.fontSize = fs + 'px'; const lw = oLab.offsetWidth, lh = oLab.offsetHeight; const out = E.i3(P(t, 42.5, .4));
+    oLab.style.left = (M(sx, 960, g) - lw / 2 - out * 1700) + 'px'; oLab.style.top = (M(sy, 540, g) - lh / 2) + 'px'; vis(oLab, t < 42.95);
+    // la page bleue se resserre en barre d'adresse blanche
+    vis(endPill, false);
+    const bc = E.qio(P(t, 45.25, .7)); const BR = { x: 960 - 400, y: 640, w: 800, h: 104 };
+    const onB = t >= 45.25; vis(bar, onB); vis(endBg, onB); over.style.background = onB ? 'transparent' : (oOn ? BLUE : 'transparent');
+    box(bar, M(0, BR.x, bc), M(0, BR.y, bc), M(1920, BR.w, bc), M(1080, BR.h, bc)); bar.style.borderRadius = M(0, 52, bc) + 'px';
+    const cc = Math.round(M(0, 255, C((bc - .5) / .4))); bar.style.background = bc > .5 ? `rgb(${M(0, 255, C((bc - .5) / .4))},${M(161, 255, C((bc - .5) / .4))},255)` : BLUE;
+    bar.style.boxShadow = bc > .8 ? '0 0 0 1px rgba(14,14,16,.08),0 16px 34px -26px rgba(14,30,60,.3)' : 'none';
+    [barLock, barTxt, barGo].forEach((e) => (e.style.opacity = C((bc - .85) / .15)));
+    const nk = URLK.filter((k) => t >= k).length; barTxt.textContent = 'mamarque.site'.slice(0, nk);
+    barCaret.style.left = (78 + barTxt.offsetWidth + 3) + 'px'; vis(barCaret, onB && bc > .95 && (nk < 11 || Math.floor(t * 3) % 2 === 0));
+    barGo.style.transform = `scale(${t >= 46.85 && t < 47.05 ? 1 - .12 * Math.sin(Math.PI * (t - 46.85) / .2) : 1})`;
+    const lw2 = E.qio(P(t, 45.75, .55)), ico2 = 85 / 277 * 100; vis(endLogo2, t >= 45.7);
+    endLogo2.style.left = (960 - 120 * 277 / 85 / 2) + 'px'; endLogo2.style.top = '440px';
+    endLogo2.style.clipPath = `inset(0 ${(100 - ico2) * (1 - lw2)}% 0 0)`; endLogo2.style.transform = `scale(${spring(t - 45.7, 220, 24)})`;
+    // pastille blanche (ancienne fin, désactivée)
+    const ep = spring(t - 45.75, 170, 24); const ew = M(40, 520, ep), eh = M(40, 150, ep);
+    vis(endPill, false); box(endPill, 960 - ew / 2, 690 - eh / 2, ew, eh);
+    endLogo.style.transform = `translate(-50%,-50%) scale(${C((ep - .4) / .6)})`;
+    over.style.transform = `scale(${1 + .03 * E.io(P(t, 42.8, DUR - 42.8))})`;
+  }
+}
+window.seek = seek;
+window.render = async (t) => { wallLoads.length = 0; seek(t); await Promise.all(wallLoads.map((i) => i.decode().catch(() => {}))); await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); };
+window.ready = (async () => {
+  await document.fonts.load('500 40px U'); await document.fonts.load('600 40px U'); await document.fonts.ready;
+  await Promise.all([...document.images].map((i) => (i.complete ? i.decode().catch(() => {}) : new Promise((r) => { i.onload = () => i.decode().then(r, r); i.onerror = r; }))));
+  CTAW = { x: 960, y: 830 };
+  seek(0); return true;
+})();
+if (location.hash === '#play') { let t = 0, play = true, last = performance.now(); const tick = (n) => { if (play) t = (t + (n - last) / 1000) % DUR; last = n; seek(t); requestAnimationFrame(tick); }; addEventListener('keydown', (e) => { if (e.code === 'Space') play = !play; if (e.code === 'ArrowRight') t += 1 / 60; if (e.code === 'ArrowLeft') t -= 1 / 60; if (e.code === 'KeyR') t = 0; }); requestAnimationFrame(tick); }
+</script></body></html>

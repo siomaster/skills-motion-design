@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><title>Ball film</title>
+<style>
+@font-face{font-family:U;src:url(fonts/Urbanist-Medium.ttf);font-weight:100 900}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1920px;height:1080px;overflow:hidden;background:#0B0B0D;font-family:U;color:#F5F5F7}
+#stage{position:absolute;inset:0;overflow:hidden;background:#0B0B0D}
+#world{position:absolute;left:0;top:0;width:1px;height:1px;transform-origin:0 0}
+.a{position:absolute}
+.card{position:absolute;width:560px;height:124px;border-radius:30px;background:#1C1C1F;box-shadow:inset 0 0 0 1.5px #2A2A2E}
+.key{position:absolute;height:56px;border-radius:13px;background:#2E2E33;color:#F5F5F7;font:500 26px/56px U;text-align:center}
+</style></head><body>
+<div id="stage"><div id="world"></div>
+<svg id="cursor" class="a" width="40" height="40" viewBox="0 0 24 24" style="left:0;top:0;z-index:30;transform-origin:4px 3px"><path d="M4 2.5l15.5 9.2-6.9 1.4 3.9 7.3-3 1.6-3.9-7.4L4.9 19z" fill="#fff" stroke="#0B0B0D" stroke-width="1.5" stroke-linejoin="round"/></svg>
+</div>
+<script>
+/* ===== constantes ===== */
+const DUR = 10; window.DUR = DUR;
+const B = .5, b = (n) => n * B;
+const ACC = '#00A1FF', CH = '#2A2A2E', TXT = '#F5F5F7', MUT = '#8E8E93';
+const C = (x, a = 0, c = 1) => Math.min(c, Math.max(a, x));
+const M = (a, c, p) => a + (c - a) * p;
+const P = (t, a, d) => C((t - a) / d);
+const io = (x) => (x < .5 ? 4 * x * x * x : 1 - (-2 * x + 2) ** 3 / 2);
+function spring(t, k = 260, d = 30) {
+  if (t <= 0) return 0; const w = Math.sqrt(k), z = d / (2 * w);
+  if (z >= 1) return 1 - Math.exp(-w * t) * (1 + w * t);
+  const wd = w * Math.sqrt(1 - z * z); return 1 - Math.exp(-z * w * t) * (Math.cos(wd * t) + (z * w / wd) * Math.sin(wd * t));
+}
+function el(tag, cls, parent, html = '', style = '') { const e = document.createElement(tag); if (cls) e.className = cls; if (html) e.innerHTML = html; if (style) e.style.cssText = style; parent.appendChild(e); return e; }
+const vis = (e, on) => { e.style.visibility = on ? 'visible' : 'hidden'; };
+const world = document.getElementById('world'), cursor = document.getElementById('cursor');
+const BALL = 56;
+
+/* ===== monde : grille de points ===== */
+el('div', 'a', world, '', 'left:-1200px;top:-1200px;width:5000px;height:4400px;background-image:radial-gradient(#25252A 2px,transparent 2.4px);background-size:40px 40px');
+
+/* interrupteur */
+const TOG = { x: 600, y: 500, w: 140, h: 76 };
+el('div', 'a', world, '', `left:${TOG.x - 70}px;top:${TOG.y - 38}px;width:140px;height:76px;border-radius:38px;background:${ACC}`);
+const BALL_ON = { x: TOG.x + 70 - 38, y: TOG.y };
+el('div', 'a', world, 'Mode focus', `left:${TOG.x - 290}px;top:${TOG.y - 19}px;font:500 34px/38px U;color:${TXT};white-space:nowrap`);
+
+/* curseur horizontal */
+const SL = { x0: 1050, x1: 1950, y: 500 };
+el('div', 'a', world, 'Progression', `left:${SL.x0 - 20}px;top:${SL.y + 46}px;font:500 30px U;color:${MUT};white-space:nowrap`);
+el('div', 'a', world, '100', `left:${SL.x1 - 40}px;top:${SL.y + 46}px;font:500 30px U;color:#5E5E64`);
+el('div', 'a', world, '', `left:${SL.x0}px;top:${SL.y - 7}px;width:900px;height:14px;border-radius:7px;background:${CH}`);
+const fill = el('div', 'a', world, '', `left:${SL.x0}px;top:${SL.y - 7}px;height:14px;border-radius:7px;background:${ACC}`);
+const knob = el('div', 'a', world, '', `width:76px;height:76px;border-radius:38px;background:#3A3A3F;top:${SL.y - 38}px`);
+const bub = el('div', 'a', world, '', `height:54px;padding:0 20px;border-radius:27px;background:${CH};color:${TXT};font:500 28px/54px U;white-space:nowrap`);
+const bubTail = el('div', 'a', world, '', `width:16px;height:16px;background:${CH};transform:rotate(45deg)`);
+
+/* notifications (en escalier pour que la balle puisse rebondir) */
+const CARDS = [{ x: 1650, y: 940, t: 'Curseur', m: '100 atteint', ic: '<path d="M4 12h16"/><circle cx="15" cy="12" r="3" fill="#fff"/>' },
+  { x: 1400, y: 1140, t: 'Gravité', m: 'Quelque chose tombe', ic: '<path d="M12 4v12M7 11l5 5 5-5"/>' },
+  { x: 1600, y: 1340, t: 'Messages', m: 'Et maintenant ?', ic: '<path d="M5 6h14v9H9l-4 3z"/>' }];
+CARDS.forEach((c, i) => {
+  c.e = el('div', 'card', world, `<div class="a" style="left:22px;top:22px;width:80px;height:80px;border-radius:22px;background:${i === 2 ? ACC : '#2E2E33'};display:flex;align-items:center;justify-content:center"><svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${c.ic}</svg></div><div class="a" style="left:124px;top:26px;font:500 32px U;color:${TXT}">${c.t}</div><div class="a" style="left:124px;top:68px;font:500 26px U;color:${MUT}">${c.m}</div><div class="a" style="right:26px;top:30px;font:500 20px U;color:#5E5E64">maintenant</div>`, `left:${c.x - 280}px;top:${c.y - 62}px`);
+  c.land = [b(4.6), b(5.6), b(6.6)][i];
+});
+/* pastille « Répondre » -> champ de texte */
+const PILL = { x: 1780, y: 1430, w: 160, h: 52 };
+const FIELD = { x: 1600, y: 1460, w: 560, h: 80 };
+const reply = el('div', 'a', world, '', `background:#2E2E33;overflow:hidden;z-index:2`);
+const replyLab = el('div', 'a', reply, 'Répondre', `left:0;right:0;top:0;bottom:0;display:flex;align-items:center;justify-content:center;font:500 24px U;color:${TXT}`);
+const fieldTxt = el('div', 'a', reply, '', `left:28px;top:20px;font:500 32px/40px U;color:${TXT};white-space:pre`);
+const fieldPh = el('div', 'a', reply, 'Écris ta réponse…', `left:28px;top:20px;font:500 32px/40px U;color:#5E5E64;white-space:pre`);
+const caret = el('div', 'a', reply, '', `top:24px;width:3px;height:32px;background:${ACC}`);
+const send = el('div', 'a', reply, `<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5.5 11.5L12 5l6.5 6.5"/></svg>`, `top:12px;width:56px;height:56px;border-radius:28px;background:${ACC};display:flex;align-items:center;justify-content:center`);
+const msg = el('div', 'a', world, 'encore', `height:60px;padding:0 26px;border-radius:30px 30px 8px 30px;background:${ACC};color:#fff;font:500 30px/60px U;transform-origin:100% 100%`);
+
+/* clavier */
+const KB = { x: 1600, y: 1720, w: 680, h: 316 };
+const kb = el('div', 'a', world, '', `left:${KB.x - KB.w / 2}px;top:${KB.y - KB.h / 2}px;width:${KB.w}px;height:${KB.h}px;border-radius:32px;background:#161618;box-shadow:inset 0 0 0 1.5px #232327`);
+const KEYS = {};
+const ROWS = [['a', 'z', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'], ['q', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', 'm'], [['⇧', 92], 'w', 'x', 'c', 'v', 'b', 'n', ['⌫', 92]], [['123', 120], ['espace', 300], ['↵', 120]]];
+ROWS.forEach((row, ri) => {
+  const items = row.map((k) => (Array.isArray(k) ? k : [k, 56]));
+  const tw = items.reduce((a, [, w]) => a + w, 0) + 8 * (items.length - 1); let x = KB.w / 2 - tw / 2;
+  items.forEach(([k, w]) => { const e = el('div', 'key', kb, k, `left:${x}px;top:${22 + ri * 70}px;width:${w}px${k === '↵' ? `;background:${ACC}` : ''}`); KEYS[k] = { e, x: KB.x - KB.w / 2 + x + w / 2, y: KB.y - KB.h / 2 + 22 + ri * 70 + 28 }; x += w + 8; });
+});
+const WORD = 'encore', TAPS = [b(9), b(9.5), b(10), b(10.5), b(11), b(11.5)], T_RET = b(12), T_SEND = b(12.5);
+
+/* balle */
+const ball = el('div', 'a', world, '', `width:${BALL}px;height:${BALL}px;border-radius:50%;background:#fff;z-index:10;transform-origin:50% 100%`);
+
+/* ===== trajectoire de la balle ===== */
+const R = BALL / 2;
+const cTop = (c) => c.y - 62 - R; // surface supérieure d'une carte
+const LAND = [
+  // [t arrivée, x, y, hauteur d'arc]
+];
+function arc(t, t0, t1, p0, p1, h) { const p = C((t - t0) / (t1 - t0)); return { x: M(p0.x, p1.x, p), y: M(p0.y, p1.y, p) - 4 * h * p * (1 - p) }; }
+const kp = (k) => ({ x: KEYS[k].x, y: KEYS[k].y });
+let SEG = [];
+function buildPath() {
+  const sl0 = { x: SL.x0, y: SL.y }, sl1 = { x: SL.x1, y: SL.y };
+  const c1 = { x: 1880, y: cTop(CARDS[0]) }, c2 = { x: 1150, y: cTop(CARDS[1]) }, c3 = { x: 1860, y: cTop(CARDS[2]) };
+  const pill = { x: PILL.x, y: PILL.y };
+  SEG = [
+    { a: b(1) + .06, z: b(2), p0: BALL_ON, p1: sl0, h: 260 },
+    { a: b(4) + .18, z: b(5), p0: sl1, p1: c1, h: 140 },
+    { a: b(5) + .04, z: b(6), p0: c1, p1: c2, h: 160 },
+    { a: b(6) + .04, z: b(7), p0: c2, p1: c3, h: 160 },
+    { a: b(7) + .04, z: b(8), p0: c3, p1: pill, h: 120 },
+  ];
+  let prev = pill, tPrev = b(8);
+  [...WORD].forEach((ch, i) => { SEG.push({ a: Math.max(tPrev + .04, TAPS[i] - .42), z: TAPS[i], p0: prev, p1: kp(ch), h: 70 }); prev = kp(ch); tPrev = TAPS[i]; });
+  SEG.push({ a: TAPS[5] + .06, z: T_RET, p0: prev, p1: kp('↵'), h: 80 });
+  SEG.push({ a: b(16), z: b(19.4), p0: kp('↵'), p1: BALL_ON, h: 520 });
+}
+const IMPACTS = () => SEG.map((s) => s.z);
+function vSlider(t) { return C(.55 * spring(t - b(3), 300, 34) + .45 * spring(t - b(4), 300, 34) - spring(t - b(17), 200, 30)); }
+function ballAt(t) {
+  for (const s of SEG) if (t >= s.a && t < s.z) return arc(t, s.a, s.z, s.p0, s.p1, s.h);
+  // au repos entre deux trajets
+  if (t < SEG[0].a) return { ...BALL_ON };
+  if (t < SEG[1].a) { // sur le bouton du curseur : petits sauts avant chaque poussée
+    const hop = (c) => { const p = P(t, c - .38, .38); return p > 0 && p < 1 ? 4 * 46 * p * (1 - p) : 0; };
+    return { x: SL.x0 + 900 * vSlider(t), y: SL.y - hop(b(3)) - hop(b(4)) };
+  }
+  let last = SEG[0];
+  for (const s of SEG) if (t >= s.z) last = s;
+  return { ...last.p1 };
+}
+
+/* ===== caméra : [t, zoom, x, y], zoom interpolé en log ===== */
+const CAM = [[0, 2.0, 600, 500], [b(1), 2.0, 600, 500], [b(2), 1.45, 1500, 520], [b(4.2), 1.45, 1500, 520], [b(5), 1.3, 1540, 920], [b(7), 1.3, 1540, 1180], [b(8.6), 1.15, 1600, 1540],
+  [b(13), 1.15, 1600, 1540], [b(15.3), .62, 1270, 1150], [b(16.4), .62, 1270, 1150], [b(19.6), 2.0, 600, 500], [DUR, 2.0, 600, 500]];
+function camAt(t) { let i = 0; while (i < CAM.length - 2 && t >= CAM[i + 1][0]) i++; const [a, z0, x0, y0] = CAM[i], [c, z1, x1, y1] = CAM[i + 1]; const e = io(C((t - a) / (c - a))); return { z: Math.exp(M(Math.log(z0), Math.log(z1), e)), x: M(x0, x1, e), y: M(y0, y1, e) }; }
+
+/* ===== curseur (monde) ===== */
+const CUR = [[0, 660, 590], [.06, 660, 590], [.45, 612, 506], [.62, 612, 506], [1.25, 760, 900], [9.0, 760, 900], [9.95, 660, 590], [10, 660, 590]];
+
+/* ================= SEEK ================= */
+function seek(t) {
+  const K = camAt(t);
+  world.style.transform = `translate(${960 - K.x * K.z}px,${540 - K.y * K.z}px) scale(${K.z})`;
+
+  // curseur horizontal : remplissage et valeur dérivés de la position de la balle
+  const v = vSlider(t);
+  const kx = SL.x0 + 900 * v;
+  knob.style.left = (kx - 38) + 'px';
+  fill.style.width = Math.max(14, 900 * v) + 'px';
+  const val = Math.round(v * 100);
+  bub.textContent = val;
+  const bw = bub.offsetWidth; bub.style.left = (kx - bw / 2) + 'px'; bub.style.top = (SL.y - 140) + 'px';
+  bubTail.style.left = (kx - 8) + 'px'; bubTail.style.top = (SL.y - 94) + 'px';
+
+  // cartes : chacune arrive sur son temps, puis s'enfonce un peu sous l'impact
+  CARDS.forEach((c, i) => {
+    const s = spring(t - (c.land - .35), 240, 26);
+    const hit = t >= SEG[i + 1]?.z ? Math.exp(-(t - SEG[i + 1].z) / .09) * Math.sin(Math.min(1, (t - SEG[i + 1].z) / .09) * Math.PI) : 0;
+    vis(c.e, t >= c.land - .35);
+    c.e.style.transform = `translate(${(1 - s) * 260}px,${(1 - s) * -60 + 8 * hit}px)`;
+    c.e.style.opacity = C(s * 1.6);
+  });
+
+  // « Répondre » -> champ -> message bleu
+  const tapPill = b(8);
+  const ex = spring(t - tapPill - .02, 220, 27);
+  const pc = { x: M(PILL.x, FIELD.x, ex), y: M(PILL.y, FIELD.y, ex) }, pw = M(PILL.w, FIELD.w, ex), ph = M(PILL.h, FIELD.h, ex);
+  const coll = spring(t - T_SEND - .05, 260, 28);
+  const s3 = spring(t - (CARDS[2].land - .35), 240, 26);
+  vis(reply, t >= CARDS[2].land - .35 && t < T_SEND + .45);
+  reply.style.left = (pc.x - pw / 2) + 'px'; reply.style.top = (pc.y - ph / 2) + 'px'; reply.style.width = pw + 'px'; reply.style.height = ph + 'px'; reply.style.borderRadius = ph / 2 + 'px';
+  reply.style.transform = `scale(${1 - .04 * Math.exp(-Math.max(0, t - tapPill) / .08) * (t >= tapPill ? 1 : 0)})`;
+  const lp = C(1 - (t - tapPill) / .12); replyLab.style.opacity = t < tapPill ? 1 : lp;
+  const typed = WORD.slice(0, TAPS.filter((k) => t >= k).length);
+  fieldTxt.textContent = typed; fieldTxt.style.opacity = C((t - tapPill - .15) / .15);
+  vis(fieldPh, t > tapPill + .2 && !typed); fieldPh.style.opacity = C((t - tapPill - .2) / .15);
+  caret.style.left = (28 + fieldTxt.offsetWidth + 2) + 'px'; vis(caret, t > tapPill + .25 && t < T_SEND && Math.floor(t * 3) % 2 === 0 || (t > TAPS[0] - .1 && t < T_RET));
+  send.style.left = (pw - 68) + 'px'; send.style.opacity = C((t - tapPill - .2) / .15);
+  const fire = t >= T_SEND ? 1 - .14 * Math.sin(Math.PI * C((t - T_SEND) / .16)) : 1;
+  send.style.transform = `scale(${fire})`;
+  // message envoyé : la réponse devient une bulle bleue compacte
+  vis(msg, t >= T_SEND + .1);
+  const mw = msg.offsetWidth;
+  msg.style.left = (FIELD.x + FIELD.w / 2 - mw) + 'px'; msg.style.top = (M(FIELD.y - 30, FIELD.y - 30, coll)) + 'px';
+  msg.style.transform = `scale(${M(.6, 1, coll)})`;
+  reply.style.opacity = (1 - C((t - T_SEND) / .25)) * C(s3 * 1.6);
+  if (t < tapPill) reply.style.transform = `translate(${(1 - s3) * 260}px,${(1 - s3) * -60}px)`;
+
+  // clavier : monte sous le champ
+  const kr = spring(t - b(8.5), 220, 26);
+  kb.style.transform = `translateY(${(1 - kr) * 420}px)`; kb.style.opacity = C(kr * 1.4);
+  Object.entries(KEYS).forEach(([k, o]) => {
+    let pr = 0;
+    TAPS.forEach((tt, i) => { if (WORD[i] === k && t >= tt) pr = Math.max(pr, Math.exp(-(t - tt) / .1)); });
+    if (k === '↵' && t >= T_RET) pr = Math.exp(-(t - T_RET) / .12);
+    o.e.style.transform = `scale(${1 - .1 * pr})`;
+    o.e.style.background = k === '↵' ? ACC : (pr > .05 ? `rgb(${Math.round(46 + 30 * pr)},${Math.round(46 + 30 * pr)},${Math.round(51 + 30 * pr)})` : '#2E2E33');
+  });
+
+  // balle : trajectoire continue + écrasement au contact
+  const bp = ballAt(t);
+  let sq = 0; for (const z of IMPACTS()) if (t >= z && t < z + .3) sq = Math.max(sq, Math.exp(-(t - z) / .06));
+  [b(3), b(4)].forEach((z) => { if (t >= z && t < z + .3) sq = Math.max(sq, Math.exp(-(t - z) / .06)); });
+  const sy = 1 - .26 * sq, sx = 1 + .2 * sq;
+  ball.style.left = (bp.x - R) + 'px'; ball.style.top = (bp.y - R) + 'px';
+  ball.style.transform = `scale(${sx},${sy})`;
+
+  // curseur (taille constante à l'écran)
+  let i = 0; while (i < CUR.length - 2 && t >= CUR[i + 1][0]) i++;
+  const [ta, xa, ya] = CUR[i], [tb, xb, yb] = CUR[i + 1], ce = io(C((t - ta) / (tb - ta)));
+  const wx = M(xa, xb, ce), wy = M(ya, yb, ce);
+  const cs = t >= b(1) && t < b(1) + .18 ? 1 - .15 * Math.sin(Math.PI * (t - b(1)) / .18) : 1;
+  cursor.style.transform = `translate(${960 + (wx - K.x) * K.z - 4}px,${540 + (wy - K.y) * K.z - 3}px) scale(${cs})`;
+}
+window.seek = seek;
+window.render = (t) => { seek(t); return new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); };
+window.ready = (async () => { await document.fonts.load('500 40px U'); await document.fonts.ready; buildPath(); seek(0); return true; })();
+if (location.hash === '#play') { let t = 0, play = true, last = performance.now(); const tick = (n) => { if (play) t = (t + (n - last) / 1000) % DUR; last = n; seek(t); requestAnimationFrame(tick); }; addEventListener('keydown', (e) => { if (e.code === 'Space') play = !play; if (e.code === 'ArrowRight') t += 1 / 60; if (e.code === 'ArrowLeft') t -= 1 / 60; if (e.code === 'KeyR') t = 0; }); requestAnimationFrame(tick); }
+</script></body></html>
